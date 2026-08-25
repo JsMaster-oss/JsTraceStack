@@ -435,10 +435,11 @@ def designation_du_graphique(traces, df):
     """Retrouve la désignation que le graphique représente.
 
     Une figure ne couvre qu'une désignation article de tête, alors que le CSV
-    les contient toutes. Sans ce rapprochement, la section 5 comparerait une
-    figure de N barres à un CSV de plusieurs centaines de lignes.
+    les contient toutes. On identifie la bonne par recouvrement des articles du
+    survol, et non par égalité stricte du nombre de lignes : la figure peut en
+    compter davantage que le CSV, ce qui est en soi un signal.
 
-    On identifie la désignation par les articles présents dans le survol.
+    Renvoie (désignation, nombre de barres, nombre de lignes du CSV).
     """
     donnees = None
     for trace in traces.values():
@@ -446,18 +447,23 @@ def designation_du_graphique(traces, df):
             donnees = trace["customdata"]
             break
     if not donnees:
-        return None, 0
+        return None, 0, 0
 
-    articles = {str(c[1]) for c in donnees if len(c) > 1}
-    candidats = []
+    articles = [str(c[1]) for c in donnees if len(c) > 1 and str(c[1]).strip()]
+    if not articles:
+        return None, len(donnees), 0
+
+    uniques = set(articles)
+    meilleur, score, taille = None, 0.0, 0
     for tete, groupe in df.groupby("désignation article de tête"):
         presents = set(groupe["Article"].astype(str))
-        if len(groupe) == len(donnees) and articles <= presents:
-            candidats.append(tete)
+        recouvrement = len(uniques & presents) / len(uniques)
+        if recouvrement > score:
+            meilleur, score, taille = tete, recouvrement, len(groupe)
 
-    if len(candidats) == 1:
-        return candidats[0], len(donnees)
-    return None, len(donnees)
+    if score < 0.8:
+        return None, len(donnees), 0
+    return meilleur, len(donnees), taille
 
 
 def section(titre):
@@ -468,15 +474,15 @@ def section(titre):
 
 
 def verifier(df, traces, df_excel, designation, df_avant=None):
+    barres_figure, lignes_csv = 0, 0
     if traces and not designation:
-        designation, nb_barres = designation_du_graphique(traces, df)
+        designation, barres_figure, lignes_csv = designation_du_graphique(traces, df)
         if designation:
-            print(f"  (graphique de {nb_barres} barres reconnu, contrôles limités "
-                  "à cette désignation)")
-        elif nb_barres and nb_barres != len(df):
-            print(f"  (graphique de {nb_barres} barres, CSV de {len(df)} lignes : "
-                  "désignation non identifiée)")
-            print("   Relance avec --designation \"...\" pour la section 5.")
+            print(f"  (graphique de {barres_figure} barres reconnu, contrôles "
+                  f"limités à cette désignation : {lignes_csv} lignes au CSV)")
+        elif barres_figure:
+            print(f"  (graphique de {barres_figure} barres, désignation non "
+                  "identifiée — relance avec --designation \"...\")")
 
     if designation:
         df = df[df["désignation article de tête"] == designation]
@@ -669,6 +675,31 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
                 f"absents : {manquantes}" if manquantes else "")
 
         n = len(df)
+        tailles = {len(t["x"]) for t in traces.values() if "x" in t}
+        ecart_comptage = tailles and tailles != {n}
+
+        if ecart_comptage:
+            barres = max(tailles)
+            verdict("la figure a autant de barres que le CSV a de lignes",
+                    1, 1, f"figure {barres}, CSV {n}")
+            print()
+            if barres > n:
+                print(f"    La figure compte {barres - n} barres de plus que le CSV.")
+                print("    Cause probable : la jointure avec les fiches duplique des")
+                print("    lignes. `generate_data_cycle` déduplique sur")
+                print("    Designation_Article seul, donc une même Référence Article")
+                print("    peut survivre plusieurs fois, et")
+                print("    `set_index(\"Article\").join(...)` démultiplie alors la ligne.")
+                print("    Chaque doublon ajoute une barre ET fausse la cascade.")
+            else:
+                print(f"    La figure compte {n - barres} barres de moins que le CSV.")
+                print("    Le graphique et le CSV ne portent pas sur le même")
+                print("    périmètre : préciser --designation.")
+            print()
+            print("    Les comparaisons poste par poste sont sautées : elles")
+            print("    n'auraient aucun sens sur des tailles différentes.")
+            return
+
         affiche = ajuster_affichage(calcule)
 
         # Longueur réellement dessinée : c'est elle qui doit valoir le Délai
