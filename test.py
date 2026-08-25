@@ -483,7 +483,14 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
 
     section("3. STRUCTURE DE L'ARBRE")
 
-    par_designation = df.groupby("désignation article de tête")
+    # dropna=False : sans ça, les lignes dont la désignation de tête est vide
+    # disparaissent silencieusement du décompte des racines, alors qu'elles
+    # comptent dans le total. C'est ce qui faisait diverger le nombre de
+    # racines du nombre de lignes à t0 = 0.
+    sans_designation = int(df["désignation article de tête"].isna().sum())
+    sans_parent = int(df["article parent"].isna().sum())
+
+    par_designation = df.groupby("désignation article de tête", dropna=False)
     racines, orphelins, doublons, profondeurs = [], 0, 0, []
     for _, groupe in par_designation:
         arts = groupe["Article"].tolist()
@@ -515,13 +522,27 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
 
     verdict("une seule racine par désignation",
             sum(1 for r in racines if r != 1), len(racines),
-            f"racines par désignation : {sorted(set(racines))}")
+            f"racines par désignation : {sorted(racines)}")
+    print(f"    racines au total                : {sum(racines)}"
+          "   (autant de lignes à t0 = 0, cf. section 4)")
+    if sans_designation:
+        print(f"    lignes sans désignation de tête : {sans_designation}"
+              "   <-- exclues de TOUS les graphiques")
+    print(f"    lignes sans article parent      : {sans_parent}")
     verdict("aucun parent introuvable", orphelins, len(df),
             "un parent absent rend la ligne racine et remet son t0 à 0")
     print(f"    articles montés plusieurs fois : {doublons}")
     print(f"    profondeur maximale             : {max(profondeurs) if profondeurs else 0}")
 
-    if orphelins:
+    if doublons:
+        multiples = set(df["Article"][df["Article"].duplicated(keep=False)].astype(str))
+        exposees = int(df["article parent"].astype(str).isin(multiples).sum())
+        print(f"    lignes dont le parent est monté plusieurs fois : {exposees}")
+        print("      Ce sont celles dont le t0 dépend de l'occurrence choisie.")
+        print("      Le graphique prend la précédente, ce qui est correct ;")
+        print("      generateData.py prend la première (.iloc[0]).")
+
+    if orphelins or sans_designation:
         detailler_orphelins(df)
 
     section("4. RECALCUL INDÉPENDANT DU GRAPHIQUE")
@@ -698,6 +719,25 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
               f"{int((non_nul & sans_cycle & ~est_50).sum())}")
         print(f"      dont durée non nulle                 : "
               f"{int((non_nul & ~sans_cycle).sum())}")
+        # Les durées nulles hors appro 50 viennent de colonnes de cycle vides.
+        # Si l'autre colonne, elle, est renseignée, c'est la branche E/F de
+        # RG-038 qui écarte une valeur que `max(AS, AT)` aurait gardée.
+        muettes = non_nul & sans_cycle & ~est_50
+        if muettes.any() and {"Cyc_Fab.", "Delai_appr"} <= set(df.columns):
+            fab = num("Cyc_Fab.").to_numpy(dtype=float)
+            appr = num("Delai_appr").to_numpy(dtype=float)
+            recuperable = muettes & (np.maximum(fab, appr) > 0)
+            print(f"      parmi ces {int(muettes.sum())} à durée nulle hors appro 50 :")
+            print(f"        les deux colonnes de cycle sont vides : "
+                  f"{int((muettes & ~recuperable).sum())}")
+            print(f"        l'une des deux est renseignée         : "
+                  f"{int(recuperable.sum())}"
+                  "   <-- la branche E/F écarte une valeur non nulle")
+            if recuperable.any():
+                quantiles("valeur écartée par la branche E/F",
+                          np.where(recuperable, np.maximum(fab, appr), np.nan),
+                          "jours")
+
         reste = non_nul & ~sans_cycle
         if reste.any():
             quantiles("résidu hors durée nulle", np.where(reste, residu, np.nan),
