@@ -196,6 +196,65 @@ def tableau_plotly(valeur):
     return valeur
 
 
+SEPARATEURS = [",", ";", "\t", "|"]
+
+
+def charger_csv(chemin):
+    """Lit le CSV sans présumer du séparateur ni du format décimal.
+
+    `to_csv` écrit des virgules et des points décimaux, mais un aller-retour par
+    Excel en français rend le fichier en points-virgules avec des virgules
+    décimales. Les deux doivent passer, sinon les contrôles numériques tombent
+    en silence sur des colonnes lues comme du texte.
+    """
+    with open(chemin, encoding="utf-8-sig", errors="replace") as f:
+        entete = f.readline()
+
+    # Le bon séparateur est celui qui découpe l'en-tête en le plus de colonnes.
+    scores = {sep: entete.count(sep) for sep in SEPARATEURS}
+    separateur = max(scores, key=lambda sep: scores[sep])
+
+    if scores[separateur] == 0:
+        raise SystemExit(
+            "Le fichier « {} » n'a qu'une seule colonne dans son en-tête.\n"
+            "Première ligne lue :\n  {}\n"
+            "Vérifie que c'est bien export_power_bi.csv, et que le chemin est "
+            "entre guillemets s'il contient des espaces.".format(
+                chemin, entete.strip()[:200])
+        )
+
+    lecture = dict(sep=separateur, dtype={"Article": str, "article parent": str,
+                                          "Niveau": str},
+                   encoding="utf-8-sig")
+    try:
+        df = pd.read_csv(chemin, **lecture)
+    except pd.errors.ParserError as erreur:
+        raise SystemExit(
+            "Lecture impossible de « {} » avec le séparateur « {} » :\n  {}\n"
+            "Si le fichier est passé par Excel, réexporte-le depuis MinIO plutôt "
+            "que de l'enregistrer depuis Excel.".format(
+                chemin, separateur, erreur)
+        )
+
+    # Décimales à la française : une colonne censée être numérique arrive en
+    # texte du type "3,5". On relit en le disant à pandas.
+    temoins = [c for c in ("Délai", "Cyc_Cum", "Délais non analysé (mois)")
+               if c in df.columns]
+    virgule = any(
+        df[c].dtype == object
+        and df[c].astype(str).str.match(r"^\s*-?\d+,\d+\s*$").any()
+        for c in temoins
+    )
+    if virgule:
+        df = pd.read_csv(chemin, decimal=",", **lecture)
+
+    if separateur != "," or virgule:
+        print("  (fichier lu avec le séparateur « {} »{})".format(
+            separateur, ", décimales à la virgule" if virgule else ""))
+
+    return df
+
+
 def charger_graphique(chemin):
     contenu = json.load(open(chemin, encoding="utf-8"))
     if isinstance(contenu, dict) and "graph" in contenu:
@@ -309,6 +368,60 @@ def comparer_avant_apres(avant, apres, designation):
     print("    RG-038, l'écart peut aller dans les deux sens.")
 
 
+def _normaliser(valeur):
+    """Forme canonique d'une référence, pour repérer un écart de format."""
+    return str(valeur).strip().upper().lstrip("0")
+
+
+def detailler_orphelins(df):
+    """Pourquoi un parent est-il introuvable ? Quatre causes possibles, et une
+    cinquième — l'écart de format — qui est la plus facile à corriger."""
+    tous = set(df["Article"].astype(str))
+    normalises = {}
+    for article in tous:
+        normalises.setdefault(_normaliser(article), []).append(article)
+
+    par_designation = {}
+    for tete, groupe in df.groupby("désignation article de tête"):
+        par_designation[tete] = set(groupe["Article"].astype(str))
+
+    compte = {"vide": 0, "sentinelle": 0, "autre désignation": 0,
+              "absent du fichier": 0}
+    format_seul = 0
+
+    for _, ligne in df.iterrows():
+        parent = ligne["article parent"]
+        tete = ligne["désignation article de tête"]
+        if pd.isna(parent):
+            compte["vide"] += 1
+            continue
+        parent = str(parent)
+        if parent in par_designation.get(tete, set()):
+            continue
+        if parent == "SP00035899":
+            compte["sentinelle"] += 1
+        elif parent in tous:
+            compte["autre désignation"] += 1
+        else:
+            compte["absent du fichier"] += 1
+            if _normaliser(parent) in normalises:
+                format_seul += 1
+
+    print()
+    print("    Pourquoi le parent est-il introuvable :")
+    for cause, n in compte.items():
+        if n:
+            print(f"      {cause:34s} {n:5d}")
+    if format_seul:
+        print(f"      dont un Article existe au format près {format_seul:5d}"
+              "   <-- zéros de tête, espaces ou casse")
+        print("      C'est la cause la plus simple à corriger : la référence")
+        print("      existe, elle n'est pas écrite pareil des deux côtés.")
+    if compte["autre désignation"]:
+        print("      Un parent situé dans une autre désignation article de tête")
+        print("      rend la ligne racine ici : son sous-arbre repart de t0 = 0.")
+
+
 def section(titre):
     print()
     print("=" * 78)
@@ -408,6 +521,9 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     print(f"    articles montés plusieurs fois : {doublons}")
     print(f"    profondeur maximale             : {max(profondeurs) if profondeurs else 0}")
 
+    if orphelins:
+        detailler_orphelins(df)
+
     section("4. RECALCUL INDÉPENDANT DU GRAPHIQUE")
     print("  Les postes sont reconstruits depuis le CSV, puis la cascade est")
     print("  recalculée par récursion mémoïsée — un chemin de code différent de")
@@ -435,9 +551,28 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     attendu_non = num("Délais non analysé (mois)") + calcule["Délai sécu (mois)"] \
         + calcule["Tmps recep (mois)"]
     attendu = np.where(analyse, attendu_oui, attendu_non)
-    ko = int((np.abs((total - t0) - attendu) > TOLERANCE).sum())
+    ecart = (total - t0) - attendu
+    ko = int((np.abs(ecart) > TOLERANCE).sum())
     verdict("Délai total - t0 = Délai de l'article + Sécu + Recep", ko, len(df),
             "vrai pour les deux natures d'article")
+
+    if ko:
+        for nom, masque in (("analysés", analyse.to_numpy()),
+                            ("non analysés", (~analyse).to_numpy())):
+            hors = np.abs(ecart[masque]) > TOLERANCE
+            if not hors.any():
+                continue
+            valeurs = np.abs(ecart[masque][hors])
+            print(f"      {int(hors.sum())} sur {int(masque.sum())} {nom} : "
+                  f"écart médian {np.median(valeurs):.3f}, max {valeurs.max():.3f} mois")
+        pire = np.abs(ecart).max()
+        if pire < 0.35:
+            print("      Ordre de grandeur d'une dérive d'arrondi : chaque poste est")
+            print("      arrondi au dixième de mois avant la somme, six postes")
+            print("      peuvent donc dériver de 0,30 mois. Ce n'est pas un défaut")
+            print("      d'intégration.")
+        else:
+            print("      Trop grand pour un arrondi : à regarder de près.")
 
     quantiles("Délai total (mois)", total, "mois")
     quantiles("décalage t0 (mois)", t0, "mois")
@@ -543,6 +678,33 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
 
     quantiles("écart Cyc_Cum(i) - Cyc_Cum(parent)", ecart_cyc, "jours")
     quantiles("ancien calcul - nouveau (RG-038 + Sécu + Recep)", residu, "jours")
+
+    # D'où viennent les résidus non nuls ? RG-038 met la durée à 0 quand
+    # Appro_spec ou TyApproSpe vaut 50, alors que SAP garde son écart de
+    # Cyc_Cum : ces lignes doivent ressortir en tête.
+    non_nul = ~np.isnan(residu) & (np.abs(residu) > 1e-9)
+    if non_nul.any():
+        est_50 = pd.Series(False, index=df.index)
+        for colonne in ("Appro_spec", "TyApproSpe"):
+            if colonne in df.columns:
+                est_50 |= pd.to_numeric(df[colonne], errors="coerce").fillna(0) == 50
+        est_50 = est_50.to_numpy()
+        sans_cycle = num("Durée restante").to_numpy(dtype=float) == 0
+
+        print()
+        print(f"    résidus non nuls                       : {int(non_nul.sum())}")
+        print(f"      dont Appro_spec ou TyApproSpe = 50   : {int((non_nul & est_50).sum())}")
+        print(f"      dont Durée restante = 0 (autre motif): "
+              f"{int((non_nul & sans_cycle & ~est_50).sum())}")
+        print(f"      dont durée non nulle                 : "
+              f"{int((non_nul & ~sans_cycle).sum())}")
+        reste = non_nul & ~sans_cycle
+        if reste.any():
+            quantiles("résidu hors durée nulle", np.where(reste, residu, np.nan),
+                      "jours")
+            print("      Ce sous-ensemble est le vrai candidat pour le délai de")
+            print("      lien RG-040 : la durée RG-038 est connue, et il reste")
+            print("      malgré tout un écart avec le compte à rebours SAP.")
     print()
     print("    Ce résidu est ce que l'ancien graphique comptait en plus (ou en")
     print("    moins) de RG-038. C'est aussi le candidat naturel pour le délai de")
@@ -598,13 +760,11 @@ def main():
     p.add_argument("--designation", help="limiter à une désignation article de tête")
     args = p.parse_args()
 
-    df = pd.read_csv(args.csv, dtype={"Article": str, "article parent": str,
-                                      "Niveau": str})
+    df = charger_csv(args.csv)
     traces = charger_graphique(args.graph) if args.graph else None
     df_excel = pd.read_excel(args.excel, sheet_name=args.feuille) if args.excel else None
 
-    df_avant = pd.read_csv(args.avant, dtype={"Article": str, "article parent": str,
-                                              "Niveau": str}) if args.avant else None
+    df_avant = charger_csv(args.avant) if args.avant else None
 
     verifier(df, traces, df_excel, args.designation, df_avant)
     return 1 if any(not ok and crit for _, ok, crit in resultats) else 0
