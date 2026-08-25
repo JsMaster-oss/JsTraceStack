@@ -1,0 +1,215 @@
+/* Affichage optimal = 320px */
+.header{
+    width: 100%;
+    display: block;
+}
+.header img{
+    margin: 5% 40% 0 40%;
+}
+.span-header{
+    width: 100%;
+    margin: -5% 0 0 -9%;
+}
+.btn-header:nth-of-type(2){
+    margin: 0;
+}
+.btn-header:nth-of-type(1){
+    margin: 0 0 0 0;
+}
+*{
+    margin-left: 7px;
+    margin-right: 2px;
+}
+#mobile-only{
+    display: block;
+}
+.desktop-tablet{
+    display: none;
+}
+.btn-header:active, .btn-header:focus{
+    border-top: 0;
+    border-bottom: 3px solid #0065FC;
+}
+.btn-header{
+    width: 49%;
+    padding-top: 5%;
+    padding-bottom: 2%;
+    padding: 5% 0 2% 0;
+}
+.presentation h2{
+    width: 100%;
+    margin: 5% 0 0 -7px;
+}
+.presentation p{
+    margin: 5% 0 5% -7px;
+}
+.searchContainer{
+    margin: 0 0 10% 15%;
+}
+.search-location-btn{
+    width: 120%;
+    height: 150%;
+    margin: 0 0 0 -200%;
+}
+.search-btn{
+    width: 100%;
+}
+.search-icon{
+    width: 45%;
+    height: 150%;
+    margin-left: 30%;
+}
+.search-icon p{
+    color: white;
+}
+.search-icon>span:nth-child(2){
+    color: white;
+}
+.city-selector{
+    width: 220%;
+    height: 150%;
+    margin-left: -72%;
+}
+.filter{
+    display: inline-block;
+    padding: 0;
+}
+.select{
+    margin: 0 100% 5% 0;
+    padding: 0;
+    float: left;
+}
+.filters{
+    width: 52%;
+    height: 150%;
+    margin: 0 0 5% 0%;
+    float: left;
+}
+.btn span{
+    float: left;
+    font-size: 11px;
+}
+.btn{
+    width: 90%;
+    height: 50px;
+}
+.filters:nth-child(2){
+    margin-left: -4%;
+}
+.filters:nth-child(4){
+    margin-left: -4%;
+}
+.filter span:nth-of-type(2){
+    font-size: 11px;
+}
+.info-bar{
+    width: 100%;
+    display: flex;
+    margin-left: -5%;
+}
+.info-bar > span:nth-child(2){
+    margin-left: 3%;
+}
+.fa-info{
+    padding-top: 10%;
+}
+.section-offers{
+    display: flex;
+    flex-direction: column;
+}
+.popular-offers{
+    order: 1;
+    border-radius: 0;
+    margin: 0;
+    margin-top: 5%;
+    margin-left: -10%;
+    width: 110%;
+    height: 100%;
+    margin-bottom: 5%;
+}
+.main-card-popular{
+    display: block;
+}
+.title-popular-offers i{
+    margin-left: 15%;
+}
+.card-popular{
+    width: 95%;
+    height: 144px;
+    margin-bottom: 5%;
+}
+.card-popular-description{
+    flex: none;
+    width: 60%;
+    height: 50%;
+}
+.card-popular:nth-child(2)> .card-popular-description p{
+    padding-top: 5%;
+}
+.card-popular:nth-child(3)> .card-popular-description p{
+    padding-top: 3%;
+}
+.card-popular:nth-child(1)> .card-popular-description p{
+   padding-top: 8%;
+}
+.card-popular-description > h3{
+    margin: 3% 0 0 3%;
+    font-size: 16px;
+    padding-left: 0;
+    width: 95%;
+}
+.card-popular-description > p{
+    margin: 0 0 0 3%;
+}
+.card-popular-star{
+    margin: 0 0 2% 0;
+    padding-left: 0%;
+}
+.main-card-lodge{
+    order: 2;
+    border-radius: 0;
+    margin: 0;
+    margin-top: 5%;
+    margin-left: -5.5%;
+    width: 105%;
+    height: auto;
+    background-color: white;
+    margin-bottom: 20%;
+}
+.card-lodge{
+    width: 90%;
+    height: 199px;
+}
+#tiles-wrapper{
+    display: block;
+    overflow: visible;
+}
+.justify-content > *{display: block;}
+.title-lodge-card{
+    width: 100%;
+    margin: 0;
+}
+.title-lodge-card h2{
+    width: 100%;
+    margin: 0;
+}
+.row-four{
+    display: block;
+}
+.activities{
+    width: 90%;
+    height: 190px;
+    margin: 0 0 20% -2%;
+}
+.activities h3{
+    height: 30%;
+    margin-top: -7%;
+}
+footer{
+    margin-top: 25%;
+}
+.footer{
+    display: block;
+    margin: 0 0 0 -6%;
+    width: 110%;
+}

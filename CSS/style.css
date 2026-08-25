@@ -1,0 +1,339 @@
+/* Affichage optimal = 1440px */
+*{
+    box-sizing: border-box;
+    margin-left: 10px;
+    margin-right: 10px;
+    font-family: 'Raleway';
+}
+html, body{
+    width: 100%;
+    height: 100%;
+    padding-bottom: 100%;
+}
+.header{
+    display: flex;
+    justify-content: space-between;
+}
+.header img{
+    margin-top: auto;
+}
+h2{
+    font-size: 22px;
+}
+.btn-header{
+    cursor: pointer;
+    border: 0;
+    padding: 46px 15px 0 15px;
+    background-color: transparent;
+}
+.btn-header:active, .btn-header:focus{
+    border-top: 3px solid #0065FC;
+}
+.btn-header:nth-of-type(1){
+    margin-right: 67px;
+}
+.btn-header:nth-of-type(2){
+    margin-right: 20px;
+}
+.btn-header:visited, .btn-header:link{
+    text-decoration: none;
+    color: black;
+}
+.searchContainer{
+    display: flex;
+    margin: 0 0 0 -0.5%;
+}
+.search-location-btn{
+    height: 150%;
+    border: 1px solid #f2f2f2;
+    background-color: #f2f2f2;
+    border-radius:  15px 0 0 15px ;
+    font-size: 14px;
+    cursor: pointer;
+}
+.city-selector{
+    width: 150%;
+    height: 150%;
+    margin-left: -15%;
+    border: 1px solid #f2f2f2;
+    background-color: white;
+    border-color: #f2f2f2;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    text-align: left;
+}
+.search-icon{
+    width: 100%;
+    height: 150%;
+    margin-left: -20%;
+    border: 1px solid #f2f2f2;
+    background-color: #0065FC;
+    border-radius: 0 15px 15px 0;
+    font-size: 18px;
+    color: #FFF;
+    font-weight: 700;
+    cursor: pointer;
+}
+.search-icon p{
+    margin-top: 5%;
+}
+.select{
+    padding: 1% 1% 0 0;
+    margin-left: -2%;
+    font-weight: 700;
+}
+#mobile-only{
+    display: none;
+}
+.filter{
+    display: flex;
+    width: 100%;
+    height: 100%;
+    justify-content: space-between;
+    padding: 3% 50% 2% 2%;
+}
+.filter-btn:visited, .filter-btn:link,.btn:active, .btn:focus{
+    text-decoration: none;
+    color: black;
+}
+.filter-btn:active{
+    background-color: #DEEBFF;
+}
+.filter span:nth-of-type(2){
+    font-size: 17px;
+    font-weight: 700;
+}
+.btn:visited, .btn:link{
+    text-decoration: none;
+    color: black;
+}
+.btn:hover{
+    background-color: #DEEBFF;
+}
+.btn{
+    width: fit-content;
+    height: 160%;
+    white-space: nowrap;
+    border: 2px solid #d9d9d9;
+    background-color: white;
+    border-radius: 25px;
+    cursor: pointer;
+}
+.fa-money-bill-wave, .fa-person, .fa-heart, .fa-dog{
+    color: #0065FC;
+    font-size: 16px;
+    margin-right: 0;
+}
+.info-bar{
+    margin-top: 1%;
+    width: 50%;
+}
+.info-bar > span:nth-child(2){
+    margin-left: -2%;
+}
+.fa-info{
+    width: 24px;
+    height: 24px;
+    padding-top: 0.5%;
+    font-size: 12px;
+    text-align: center;
+    color: #0065FC;
+    border: solid 1px #D9D9D9;
+    border-radius: 50%;
+}
+.main-card-lodge{
+    width: 160%;
+    height: 600px;
+    margin-top: 2%;
+    background-color: #F2F2F2;
+    border-radius: 25px;
+    margin-right: 0;
+}
+.title-lodge-card h2{
+    margin: -1% 0 -1% 1%;
+}
+.title-lodge-card{
+    width: 50%;
+    padding: 4% 0 0 2.5%;
+}
+#tiles-wrapper{
+    margin: 20px 0 0 3%;
+	width: 102%;
+    height: 100%;
+}
+.justify-content>* {
+    display : inline-block;
+}
+.justify-content:after{
+    content : '';
+    display : inline-block; 
+    width : 100%; 
+    height : auto; 
+    display : inline-block;
+}
+.card-lodge{
+    margin: 1% 3% 3% 0;
+	width: 28%;
+	height: 35%;
+    background-color: white;
+    border-radius: 15px;
+    filter: drop-shadow(0px 3px 15px rgba(0, 0, 0, 0.1));
+    cursor: pointer;
+}
+.card-lodge:nth-child(4),
+.card-lodge:nth-child(5),
+.card-lodge:nth-child(6){
+    margin-top: 0;
+}
+.card-lodge p{
+    margin: -5% 0 0 5%;
+    font-size: 16px;
+}
+.card-lodge i{
+    margin: 5% -5% 0 5%;
+    color: #0065FC;
+}
+.card-lodge h3{
+    width: 100%;
+    height: 18%;
+    display: flex;
+    margin: 0% 0 0 5%;
+    padding-top: 1%;
+    font-size: 16px;
+}
+.card-lodge img{
+    float: left;
+    object-fit: cover;
+    width: 100%;
+    height: 60%;
+    border: 5px solid #FFF;
+    border-radius: 20px 20px 0 0;
+    margin: 0;
+}
+.info-card-lodge{
+    margin: 0 0 0 0;
+}
+.more-lodge-card{
+    position: absolute;
+    margin: -140px 0 0 3%;
+}
+.popular-offers{
+    margin-left: 0;
+    margin-top: 2%;
+    background-color: #F2F2F2;
+    width: 75%;
+    height: 600px;
+    border-radius: 25px;
+}
+.section-offers{
+    display: flex;
+    gap: 0 2%;
+}
+.title-popular-offers h2{
+    display: flex;
+    justify-content: space-between;
+}
+.title-popular-offers i{
+    margin-left: 0%;
+    font-size: 20px;
+    color: #0065FC;
+}
+.title-popular-offers h2{
+    margin-left: 10%;
+    margin-bottom: 5%;
+}
+.main-card-popular{
+    width: 90%;
+    height: 90%;
+}
+.card-popular{
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    height: 25%;
+    width: 90%;
+    background-color: white;
+    margin: 0 5% 7.5% 7%;
+    border-radius: 15px;
+    filter: drop-shadow(0px 3px 15px rgba(0, 0, 0, 0.1));
+    cursor: pointer;
+}
+.card-popular-description{
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    width: 60%;
+    height: 75%;
+    margin: 0 0 0 2%;
+}
+.card-popular-star{
+    color: #0065FC;
+    order: 2;
+    margin: 0 40% 3% 0;
+}
+.card-popular img{
+    object-fit: cover;
+    width: 40%;
+    height: 100%;
+    border: 5px solid #FFF;
+    border-radius: 20px 0 0 20px;
+    margin: 0;
+}
+.card-popular h3{
+    width: 80%;
+    height: 25%;
+    margin: 0;
+    padding: 5% 0 0% 0;
+    font-size: 16px;
+}
+.card-popular:nth-child(3)> .card-popular-description p{
+    margin-top: -10%;
+}
+.card-popular p{
+    margin: -10% 0 10% 0;
+}
+.card-popular i{
+    margin: 0 -5% 0 5%;
+}
+.city-activities{
+    margin-top: 5%;
+}
+.row-four{
+    width: 100%;
+    margin: 1% -1% 0 -0.5%;
+    display: flex;
+}
+.activities{
+    flex: 1 0 5%;
+}
+.activities img{
+    object-fit: cover;
+    width: 100%;
+    height: 100%;
+    border-radius: 20px 20px 20px 20px;
+    filter: drop-shadow(0px 3px 15px rgba(0, 0, 0, 0.1));
+}
+.activities h3{
+    padding: 5% 0 0 5%;
+    width: 100%;
+    height: 15%;
+    margin-top: -14%;
+    border-radius: 0 0 20px 20px;
+    background-color: #fff;
+    filter: drop-shadow(0px 3px 15px rgba(0, 0, 0, 0.1));
+    font-size: 16px;
+}
+.footer{
+    width: 97%;
+    margin: 5% 0 0 1%;
+    background-color: #F2F2F2;
+    display: flex;
+}
+.more-info{
+    padding: 1% 10% 4% 3%;
+}
+.more-info:nth-child(3){
+    padding-right: 10%;
+}
