@@ -481,6 +481,13 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     ko = (~analyse) & (num("Cyc_Cum") == 0) & (num("Délai").abs() > 1e-9)
     verdict("non analysé : Cyc_Cum = 0 -> Délai = 0", int(ko.sum()), n_non)
 
+    # La boucle métier ne renseigne Analysé que pour les lignes rattachées à une
+    # désignation de tête. Une valeur vide signale une ligne jamais traitée.
+    statut = df["Analysé"].astype(str).str.strip().str.upper()
+    jamais = ~statut.isin(["OUI", "NON"])
+    verdict("toute ligne porte Analysé = OUI ou NON", int(jamais.sum()), len(df),
+            "sinon la boucle métier ne l'a jamais vue")
+
     section("3. STRUCTURE DE L'ARBRE")
 
     # dropna=False : sans ça, les lignes dont la désignation de tête est vide
@@ -535,9 +542,14 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     print(f"    profondeur maximale             : {max(profondeurs) if profondeurs else 0}")
 
     if doublons:
-        multiples = set(df["Article"][df["Article"].duplicated(keep=False)].astype(str))
-        exposees = int(df["article parent"].astype(str).isin(multiples).sum())
-        print(f"    lignes dont le parent est monté plusieurs fois : {exposees}")
+        # Restreint aux lignes réellement tracées : celles qui portent une
+        # désignation de tête. Le reste n'apparaît dans aucun graphique.
+        tracees = df[df["désignation article de tête"].notna()]
+        multiples = set(
+            tracees["Article"][tracees["Article"].duplicated(keep=False)].astype(str)
+        )
+        exposees = int(tracees["article parent"].astype(str).isin(multiples).sum())
+        print(f"    lignes tracées dont le parent est monté plusieurs fois : {exposees}")
         print("      Ce sont celles dont le t0 dépend de l'occurrence choisie.")
         print("      Le graphique prend la précédente, ce qui est correct ;")
         print("      generateData.py prend la première (.iloc[0]).")
@@ -737,6 +749,27 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
                 quantiles("valeur écartée par la branche E/F",
                           np.where(recuperable, np.maximum(fab, appr), np.nan),
                           "jours")
+
+                # Si le résidu vaut exactement la valeur écartée, c'est que SAP
+                # a bâti son Cyc_Cum avec max(AS, AT) et non avec la colonne
+                # choisie par la branche E/F.
+                maxi = np.maximum(fab, appr)
+                colle = recuperable & (np.abs(residu - maxi) < 0.5)
+                print(f"        dont résidu = max(Cyc_Fab., Delai_appr) au jour "
+                      f"près : {int(colle.sum())}/{int(recuperable.sum())}")
+                if colle.sum() == recuperable.sum():
+                    print("        --> SAP accumule max(AS, AT). Remplacer la")
+                    print("            branche E/F par le max réconcilierait ces")
+                    print("            lignes exactement.")
+
+                types = df["Type_appro"].astype(str).str.strip().str.upper()
+                print("        répartition de Type_appro sur ces lignes :")
+                for valeur in sorted(set(types[recuperable])):
+                    masque = recuperable & (types == valeur).to_numpy()
+                    fab_vide = int((masque & (fab == 0)).sum())
+                    appr_vide = int((masque & (appr == 0)).sum())
+                    print(f"          {valeur:8s} {int(masque.sum()):4d}  "
+                          f"Cyc_Fab. vide {fab_vide:4d}  Delai_appr vide {appr_vide:4d}")
 
         reste = non_nul & ~sans_cycle
         if reste.any():
