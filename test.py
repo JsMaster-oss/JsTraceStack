@@ -11,10 +11,19 @@ ou un fournisseur. Il est fait pour être recopié tel quel dans la conversation
     python3 verification.py --csv export_power_bi.csv --excel export.xlsx
     python3 verification.py --csv apres.csv --avant avant.csv
 
-Comment récupérer `graph.json` : ouvrir le graphique dans l'application, onglet
-Réseau des outils développeur, clic droit sur la réponse de
-`/create_graph_analyse_CCC2` -> enregistrer. Le script accepte aussi bien la
-réponse brute `{"graph": "..."}` que la figure Plotly seule.
+Comment récupérer `graph.json` :
+
+  1. ouvrir la page du graphique dans l'application ;
+  2. F12, onglet Réseau, puis cocher « Conserver le journal » ;
+  3. choisir la désignation pour que le graphique se trace ;
+  4. repérer la requête `create_graph_analyse_CCC2` dans la liste ;
+  5. Chrome / Edge : clic droit dessus -> Copier -> Copier la réponse.
+     Firefox : onglet Réponse -> clic droit -> Copier tout.
+  6. coller dans un éditeur, enregistrer sous `graph.json`.
+
+Le script accepte la réponse brute `{"graph": "..."}` comme la figure Plotly
+seule, et reconnaît tout seul la désignation représentée — inutile de préciser
+`--designation`.
 
 Ce que le script fait, section par section :
 
@@ -422,6 +431,35 @@ def detailler_orphelins(df):
         print("      rend la ligne racine ici : son sous-arbre repart de t0 = 0.")
 
 
+def designation_du_graphique(traces, df):
+    """Retrouve la désignation que le graphique représente.
+
+    Une figure ne couvre qu'une désignation article de tête, alors que le CSV
+    les contient toutes. Sans ce rapprochement, la section 5 comparerait une
+    figure de N barres à un CSV de plusieurs centaines de lignes.
+
+    On identifie la désignation par les articles présents dans le survol.
+    """
+    donnees = None
+    for trace in traces.values():
+        if trace.get("customdata"):
+            donnees = trace["customdata"]
+            break
+    if not donnees:
+        return None, 0
+
+    articles = {str(c[1]) for c in donnees if len(c) > 1}
+    candidats = []
+    for tete, groupe in df.groupby("désignation article de tête"):
+        presents = set(groupe["Article"].astype(str))
+        if len(groupe) == len(donnees) and articles <= presents:
+            candidats.append(tete)
+
+    if len(candidats) == 1:
+        return candidats[0], len(donnees)
+    return None, len(donnees)
+
+
 def section(titre):
     print()
     print("=" * 78)
@@ -430,6 +468,16 @@ def section(titre):
 
 
 def verifier(df, traces, df_excel, designation, df_avant=None):
+    if traces and not designation:
+        designation, nb_barres = designation_du_graphique(traces, df)
+        if designation:
+            print(f"  (graphique de {nb_barres} barres reconnu, contrôles limités "
+                  "à cette désignation)")
+        elif nb_barres and nb_barres != len(df):
+            print(f"  (graphique de {nb_barres} barres, CSV de {len(df)} lignes : "
+                  "désignation non identifiée)")
+            print("   Relance avec --designation \"...\" pour la section 5.")
+
     if designation:
         df = df[df["désignation article de tête"] == designation]
     df = df.reset_index(drop=True)
@@ -691,15 +739,21 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     cyc = num("Cyc_Cum").to_numpy(dtype=float)
     # Cyc_Cum = 0 est un marqueur « pas de cycle », pas une position dans le
     # compte à rebours : l'écart avec le parent n'a alors aucun sens.
-    a_parent = (parent_idx >= 0) & (cyc > 0)
+    #
+    # Les articles analysés sont écartés eux aussi. `Durée restante` leur est
+    # forcée à 0 par construction — leur durée vient de leur fiche Mongo, pas de
+    # SAP — donc les comparer à RG-038 fait apparaître tout leur écart de
+    # Cyc_Cum comme un résidu, ce qui n'a aucun sens.
+    a_parent = (parent_idx >= 0) & (cyc > 0) & (~analyse).to_numpy()
     a_parent[a_parent] &= cyc[parent_idx[a_parent]] > 0
 
     ecart_cyc = np.full(len(df), np.nan)
     ecart_cyc[a_parent] = cyc[a_parent] - cyc[parent_idx[a_parent]]
 
-    sans_cycle = int((cyc == 0).sum())
-    print(f"    lignes à Cyc_Cum = 0 (marqueur, écartées) : {sans_cycle} "
+    print(f"    lignes à Cyc_Cum = 0 (marqueur, écartées)  : {int((cyc == 0).sum())} "
           f"sur {len(df)}")
+    print(f"    articles analysés (Durée restante forcée)  : {int(analyse.sum())}")
+    print(f"    liens réellement comparables               : {int(a_parent.sum())}")
     incoherents = int(np.nansum(ecart_cyc < 0))
     verdict("aucun enfant avec Cyc_Cum inférieur à son parent",
             incoherents, int(a_parent.sum()),
