@@ -955,3 +955,66 @@ def update_graph():
     for col in LISTE_COL_INTERET_ANALYSE:  # MODIF GRAPH-5 : liste locale
 
         visible = None if trace_visibility.get(col) != "legendonly" else "legendonly"
+
+        fig.add_trace(
+            go.Bar(
+                x=df_analyse_positive[col],
+                y=df_analyse_positive[attributRef],
+                texttemplate="%{x:.0f}",
+                textposition="inside",
+                textangle=0,
+                textfont_color="white",
+                orientation="h",
+                customdata=df_analyse[liste_hover_template_analyse].fillna("").values,
+                hovertemplate=df_analyse["hovertemplate"],
+                marker_color=DICO_COLOR[col],  # MODIF GRAPH-5 : dico local
+                name=col,
+                visible=visible,
+            )
+        )
+
+    fig.update_layout(barmode="stack", title_text="Relative Barmode")
+
+    fig.update_layout(
+        yaxis_title="Article",
+        xaxis_title="Mois",
+        title="Cascade cyclée par rapport à t0 (en mois)",
+        height=700,
+    )
+
+    fig.update_layout(template="plotly_white", height=700)
+    fig.update_yaxes(side="right")
+    fig.update_xaxes(autorange="reversed")
+
+    fig.update_layout(
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            xanchor="left",
+            y=-0.1,
+            x=-0.1,
+            bgcolor="rgba(0,0,0,0)",
+        )
+    )
+
+    fig.update_layout(
+        hoverlabel=dict(
+            bgcolor="rgba(0,0,0,1)",
+            font_size=10,
+        )
+    )
+
+    if b_ordonner:
+        fig.update_yaxes(categoryorder="total ascending")
+    else:
+        fig.update_layout(
+            yaxis={
+                "categoryorder": "array",
+                "categoryarray": df_analyse[attributRef].tolist()[::-1],
+            }
+        )
+
+    data = {"graph": json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)}
+
+    _ = clickedTrace
+    return jsonify(data)
