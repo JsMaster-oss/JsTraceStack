@@ -463,4 +463,495 @@ def create_graph_analyse_CCC2():
 
     fig.update_layout(
         yaxis_title="Article",
-        xaxis_title
+        xaxis_title="Mois",
+        title="Cascade cyclée par rapport à t0 (en mois)",
+        height=700,
+    )
+
+    fig.update_layout(template="plotly_white", height=700)
+    fig.update_yaxes(side="right")
+    fig.update_xaxes(autorange="reversed")
+
+    fig.update_layout(
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            xanchor="left",
+            y=-0.1,
+            x=-0.1,
+            bgcolor="rgba(0,0,0,0)",
+            entrywidth=0,
+        )
+    )
+
+    fig.update_layout(
+        hoverlabel=dict(
+            bgcolor="rgba(0,0,0,1)",
+            font_size=10,
+        )
+    )
+
+    if b_ordonner:
+        fig.update_yaxes(categoryorder="total ascending")
+    else:
+        fig.update_layout(
+            yaxis={
+                "categoryorder": "array",
+                "categoryarray": df_analyse[attributRef].tolist()[::-1],
+            }
+        )
+
+    data = {"graph": json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)}
+
+    log_action(
+        action="Consultation",
+        menu="Visualisation",
+        detail="Visualisation en cascade cyclée de : " + str(designation_article),
+    )
+
+    return jsonify(data)
+
+
+@main.route("/update_info_cascade", methods=["POST", "GET"])
+@login_required
+@roles_required("Admin", "Writer", "Reader")
+def update_info_cascade():
+
+    df_power_bi = generate_data_power_bi(config)
+
+    if df_power_bi is not None:
+        stocker_donnee_power_bi(config, df_power_bi)
+
+    data = {"MSG": "Ok"}
+
+    return jsonify(data)
+
+
+@main.route("/update_info_cascade_index", methods=["POST", "GET"])
+@login_required
+@roles_required("Admin", "Writer", "Reader")
+def update_info_cascade_index():
+
+    df_power_bi = generate_data_power_bi(config)
+
+    if df_power_bi is not None:
+        stocker_donnee_power_bi(config, df_power_bi)
+
+    return redirect(url_for("main.index_fiche"))
+
+
+# Route intermédiaire qui sert à rendre dynamique le clic de la légende en retraçant le graphique
+@main.route("/update_graph", methods=["POST"])
+# MODIF GRAPH-9 : décorateurs inversés, @roles_required précédait @login_required
+@login_required
+@roles_required("Admin", "Writer", "Reader")
+def update_graph():
+
+    req = request.get_json()
+
+    b_ordonner = req["server_data"]["b_ordonner"]
+    designation_article = req["server_data"]["designation_article"]
+
+    # Récupération du statut de chaque trace
+    traceStatus = req["traceStatut"]
+
+    # Récupération du nom de la trace cliquée
+    clickedTrace = req["clickedTraceName"]
+
+    df_power_bi = get_donnee_power_bi(config)
+    df_cycle_detail = generate_data_cycle(config)
+
+    df_power_bi = df_power_bi[
+        df_power_bi["désignation article de tête"] == designation_article
+    ].copy()  # MODIF GRAPH-8 : .copy() ajouté, les affectations portaient sur une vue
+
+    df_power_bi["Article Article père"] = (
+        df_power_bi["Article"] + "-" + df_power_bi["article parent"]
+    )
+
+    df_power_bi["Tmps recep (mois) raw"] = df_power_bi["Tps_Recep"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Délai sécu (mois) raw"] = df_power_bi["Délai_Sécu"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Delta SAP (mois) raw"] = df_power_bi["Delta SAP"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Tmps recep (mois)"] = df_power_bi["Tps_Recep"].apply(
+        lambda x: round(x / 20, 2)
+    )
+    df_power_bi["Délai sécu (mois)"] = df_power_bi["Délai_Sécu"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Delta SAP (mois)"] = df_power_bi["Delta SAP"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Cycle Industriel Optimal (mois) raw"] = df_power_bi["ZPIF"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Complément au cycle industriel (mois) raw"] = df_power_bi["ZO2"].apply(  # MODIF GRAPH-1 : lisait "202"
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Appros Longs (mois) raw"] = df_power_bi["ZO1"].apply(  # MODIF GRAPH-1 : lisait "201"
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Cycle Industriel Optimal (mois)"] = df_power_bi["ZPIF"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Complément au cycle industriel (mois)"] = df_power_bi["ZO2"].apply(  # MODIF GRAPH-1 : lisait "202"
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Appros Longs (mois)"] = df_power_bi["ZO1"].apply(  # MODIF GRAPH-1 : lisait "201"
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Démontré (mois) raw"] = df_power_bi["Démontré"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Risques (mois) raw"] = df_power_bi["Risques"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Somme des retards démontrés (mois)"] = df_power_bi["Démontré"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Risque majorant (mois)"] = df_power_bi["Risques"].apply(
+        lambda x: round(x / 20, 1)
+    )
+    df_power_bi["Délais non analysé (mois) raw"] = df_power_bi[
+        "Délais non analysé (mois)"
+    ].apply(lambda x: round(x, 1))
+
+    df_power_bi = df_power_bi.rename(
+        columns={"Délais non analysé (mois)": "Délais SAP non Analysé (mois)"}
+    )
+    df_power_bi = df_power_bi.rename(
+        columns={"Appros Longs (mois)": "Appros Longs LLI (mois)"}
+    )
+    df_power_bi = df_power_bi.rename(
+        columns={
+            "Complément au cycle industriel (mois)": "Autres, Appros ou Semi-Finis (mois)"
+        }
+    )
+    df_power_bi = df_power_bi.rename(
+        columns={"Cycle Industriel Optimal (mois)": "Cycle Industriel (mois)"}
+    )
+    df_power_bi = df_power_bi.rename(columns={"Delta SAP (mois)": "Cycle SAP (mois)"})
+
+    df_power_bi = (
+        df_power_bi.set_index("Article")
+        .join(
+            df_cycle_detail[
+                [
+                    "Référence Article",
+                    "Fournisseur",
+                    "Cycle Contractuel Equipementiers (en mois)",
+                    "Mots clefs Risque",
+                    "Mots Clefs Retard Démontré",
+                    "Mots clefs expliquant le delta",
+                    "Mots Clefs Appros Longs",
+                    "Mots Clefs Complément au cycle industriel",
+                    "Mots Clefs Cycle Industriel Optimal",
+                ]
+            # MODIF GRAPH-11 : une même Référence Article peut apparaître
+            # plusieurs fois dans les fiches — generate_data_cycle ne
+            # déduplique que sur Designation_Article. Chaque doublon
+            # démultipliait la ligne au join : autant de barres en trop sur
+            # le graphique, et une cascade faussée puisque plusieurs barres
+            # portaient le même article.
+            #
+            # keep="first" pour rester aligné sur generateData.py, qui prend la
+            # première fiche (.iloc[0]) pour calculer les six composantes : le
+            # survol doit décrire la même fiche que les chiffres.
+            ].drop_duplicates(subset=["Référence Article"], keep="first")
+            .set_index("Référence Article")
+        )
+        .reset_index()
+        .rename(columns={"index": "Article"})
+        .sort_values(by=["ID"])
+    )
+
+    attributRef = "Designation bis"
+
+    df_power_bi["Designation bis"] = df_power_bi["Designation"]
+
+    identifier = (
+        df_power_bi[[attributRef]].groupby(by=attributRef).transform("cumcount")
+    )
+
+    # MODIF GRAPH-7 : le `"-" +` qui préfixait identifier est retiré. Avec lui,
+    # .replace("0", "") ne remplaçait rien — les valeurs étaient "-0", "-1" — et
+    # le premier exemplaire s'appelait NOM-0 au lieu de NOM.
+    df_power_bi[attributRef] = df_power_bi[attributRef].astype("string") + (
+        identifier.astype("string")
+    ).replace("0", "")
+
+    # MODIF GRAPH-5 : liste_col_interet_analyse et dico_color supprimées d'ici,
+    # remontées en LISTE_COL_INTERET_ANALYSE et DICO_COLOR au niveau module.
+
+    liste_hover_template_analyse = [
+        "Designation",
+        "Article",
+        "article parent",
+        "Fournisseur",
+        "Cycle Contractuel Equipementiers (en mois)",
+        "Risque majorant (mois)",
+        "Somme des retards démontrés (mois)",
+        "Cycle SAP (mois)",
+        "Appros Longs LLI (mois)",
+        "Autres, Appros ou Semi-Finis (mois)",
+        "Cycle Industriel (mois)",
+        "Délai sécu (mois)",
+        "Tmps recep (mois)",
+        "date début t0 (mois)",
+        "Mots clefs Risque",
+        "Mots Clefs Retard Démontré",
+        "Mots clefs expliquant le delta",
+        "Mots Clefs Appros Longs",
+        "Mots Clefs Complément au cycle industriel",
+        "Mots Clefs Cycle Industriel Optimal",
+        "Délais SAP non Analysé (mois)",
+        "Délai total (mois)",
+    ]
+
+    df_analyse = df_power_bi
+
+    hovertemplates = []
+
+    for _, row in df_analyse.iterrows():
+
+        hovertemplate = "<br>Désignation Article: %{customdata[0]}"
+        hovertemplate += "<br>Référence Article: %{customdata[1]}"
+
+        if not isinstance(row["Fournisseur"], float) and not pd.isna(
+            row["Fournisseur"]
+        ):
+            hovertemplate += "<br>Fournisseur: %{customdata[3]}"
+
+        if not isinstance(row["Mots clefs Risque"], float) and not pd.isna(
+            row["Mots clefs Risque"]
+        ):
+            hovertemplate += "<br><span style='color: #FFD166;'>&#11044;</span> Risque majorant: %{customdata[5]}: %{customdata[14]}"
+
+        if not isinstance(row["Mots Clefs Retard Démontré"], float) and not pd.isna(
+            row["Mots Clefs Retard Démontré"]
+        ):
+            hovertemplate += "<br><span style='color: #EF476F;'>&#11044;</span> Somme des retards démontrés: %{customdata[6]}: %{customdata[15]}"
+
+        if not isinstance(row["Mots clefs expliquant le delta"], float) and not pd.isna(
+            row["Mots clefs expliquant le delta"]
+        ):
+            hovertemplate += "<br><span style='color: #F78C6B;'>&#11044;</span> Cycle SAP vs retard démontré: %{customdata[7]}: %{customdata[16]}"
+
+        if not isinstance(row["Mots Clefs Appros Longs"], float) and not pd.isna(
+            row["Mots Clefs Appros Longs"]
+        ):
+            hovertemplate += "<br><span style='color: #06D6AC;'>&#11044;</span> Appros Longs LLI: %{customdata[8]}: %{customdata[17]}"
+
+        if not isinstance(
+            row["Mots Clefs Complément au cycle industriel"], float
+        ) and not pd.isna(row["Mots Clefs Complément au cycle industriel"]):
+            hovertemplate += "<br><span style='color: #118AB2;'>&#11044;</span> Autres, Appros ou Semi-Finis: %{customdata[9]}: %{customdata[18]}"
+
+        if not isinstance(
+            row["Mots Clefs Cycle Industriel Optimal"], float
+        ) and not pd.isna(row["Mots Clefs Cycle Industriel Optimal"]):
+            hovertemplate += "<br><span style='color: #073B4C;'>&#11044;</span> Cycle Industriel fournisseur: %{customdata[10]}: %{customdata[19]}"
+
+        hovertemplate += "<br><span style='color: #CFC841;'>&#11044;</span> Délai de sécurité: %{customdata[11]}"
+        hovertemplate += "<br><span style='color: #E4DD5D;'>&#11044;</span> Temps de Réception: %{customdata[12]}"
+        hovertemplate += "<br><span style='color: #98d2eb;'>&#11044;</span> Décalage de t0: %{customdata[13]}"
+
+        if isinstance(row["Mots Clefs Cycle Industriel Optimal"], float) and pd.isna(
+            row["Mots Clefs Cycle Industriel Optimal"]
+        ):
+            hovertemplate += "<br><span style='color: #7142c6;'>&#11044;</span> Délai SAP non analysé: %{customdata[20]}"
+
+        hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[21]}"
+
+        # MODIF GRAPH-10 : prévenir que les segments dessinés sont plus courts
+        # que les valeurs ci-dessus, sinon l'écart passe pour une erreur.
+        if row["Cycle SAP (mois)"] < 0:
+            hovertemplate += (
+                "<br><i>Cycle SAP négatif : les segments de cycle sont réduits "
+                "à l'écran pour que la barre garde la bonne longueur.</i>"
+            )
+
+        hovertemplate += "<extra></extra>"
+
+        hovertemplates.append(hovertemplate)
+
+    df_analyse["hovertemplate"] = hovertemplates
+
+    # Check du statut de chaque trace, si une trace est masquée, alors sa valeur
+    # est mise à 0 avant le recalcul.
+    #
+    # "date début t0 (mois)" fait exception : la masquer n'a aucun effet, elle
+    # est de toute façon recalculée depuis le parent juste après.
+    for json_obj in traceStatus:
+        if (
+            json_obj["visible"] == "legendonly"
+            and json_obj["name"] in LISTE_COL_INTERET_ANALYSE  # MODIF GRAPH-6 : `colonnes`
+        ):
+            df_analyse[json_obj["name"]] = df_analyse[json_obj["name"]] * 0
+
+    # Recalcul du t0 à partir de la relation article article parent
+    # MODIF GRAPH-6 : la liste `colonnes` qui précédait ici est supprimée, elle
+    # faisait doublon avec LISTE_COL_INTERET_ANALYSE à l'ordre près.
+    # MODIF GRAPH-4 : corps de la fonction entièrement remplacé ; la fonction
+    # elle-même reste imbriquée dans la route. Voir MODIFICATIONS.md.
+    def calculer_delai_total_et_t0(df, colonnes):
+        """Délai total et décalage t0 de chaque article de la désignation.
+
+        Le cumul suit la profondeur dans l'arbre, pas l'ordre des lignes : un
+        export où l'enfant précède son parent donnait sinon à l'enfant la durée
+        *propre* du parent au lieu de son cumul, sans erreur ni avertissement.
+
+        Le rattachement porte sur une position de ligne et non sur la seule
+        référence article : un composant monté à plusieurs endroits de la
+        nomenclature a autant de t0 que de montages, et un rapprochement par
+        référence renverrait toujours le premier. On retient la dernière
+        occurrence du parent située *avant* la ligne — convention de la
+        nomenclature indentée, où le parent précède ses composants — et on se
+        rabat sur une occurrence suivante si aucune ne précède.
+
+        `colonnes` est la liste des postes empilés dans la barre. La colonne t0
+        y figure comme poste dessiné, elle est écartée de la somme puisqu'elle
+        est recalculée ici depuis le parent.
+        """
+        df = df.copy()
+
+        postes = [c for c in colonnes if c != "date début t0 (mois)"]
+        duree_propre = df[postes].fillna(0).sum(axis=1).to_numpy(dtype=float)
+
+        # Position de la ligne parente de chaque ligne, -1 pour une racine
+        positions = {}
+        for i, article in enumerate(df["Article"].to_numpy()):
+            positions.setdefault(article, []).append(i)
+
+        parent_pos = np.full(len(df), -1, dtype=int)
+        for i, ref_parent in enumerate(df["article parent"].to_numpy()):
+            if pd.isna(ref_parent):
+                continue
+            candidats = positions.get(ref_parent)
+            if not candidats:
+                continue
+            rang = bisect_left(candidats, i)
+            if rang > 0:
+                parent_pos[i] = candidats[rang - 1]
+            else:
+                suivants = [c for c in candidats if c != i]
+                if suivants:
+                    parent_pos[i] = suivants[0]
+
+        # Profondeur de chaque ligne, pour cumuler les parents avant les enfants
+        profondeur = np.full(len(df), -1, dtype=int)
+        for depart in range(len(df)):
+            chaine, vus, courant = [], set(), depart
+            while courant != -1 and profondeur[courant] == -1:
+                if courant in vus:
+                    raise ValueError(
+                        "Boucle dans la relation article / article parent, "
+                        "lignes {}".format(sorted(vus))
+                    )
+                vus.add(courant)
+                chaine.append(courant)
+                courant = parent_pos[courant]
+
+            niveau = 0 if courant == -1 else profondeur[courant] + 1
+            for ligne in reversed(chaine):
+                profondeur[ligne] = niveau
+                niveau += 1
+
+        t0 = np.zeros(len(df), dtype=float)
+        total = np.zeros(len(df), dtype=float)
+
+        for ligne in np.argsort(profondeur, kind="stable"):
+            parent = parent_pos[ligne]
+            t0[ligne] = 0.0 if parent == -1 else total[parent]
+            total[ligne] = duree_propre[ligne] + t0[ligne]
+
+        df["date début t0 (mois)"] = np.round(t0, 2)
+        df["Délai total (mois)"] = np.round(total, 2)
+
+        return df
+
+    df_analyse = calculer_delai_total_et_t0(df_analyse, LISTE_COL_INTERET_ANALYSE)  # MODIF GRAPH-6 : passait `colonnes`
+
+    # MODIF GRAPH-10 : remplace l'écrêtage `clip(lower=0)` — lui-même remplaçant
+    # de `.applymap(lambda x: max(x, 0))`, supprimé de pandas 3. L'écrêtage
+    # laissait la barre plus longue que le Délai total dès qu'un segment était
+    # négatif : Plotly ignore un segment négatif dans une barre empilée, donc la
+    # longueur manquait à l'appel sans que rien ne le signale.
+    def ajuster_pour_affichage(df, colonnes):
+        """Version du DataFrame destinée au tracé, sans segment négatif.
+
+        On répartit les valeurs négatives sur les postes voisins au lieu de les
+        écrêter, pour que la longueur de la barre reste égale au Délai total.
+
+        Cas principal, le Cycle SAP. Il vaut `Cycle SAP - ZPIF - ZO1 - ZO2` :
+        négatif, il veut dire que le cycle industriel et ses gains dépassent le
+        cycle SAP réel. On réduit donc ces trois postes au prorata jusqu'à
+        absorber le dépassement, et le segment Cycle SAP tombe à 0. Les trois
+        postes réduits somment alors exactement au cycle SAP.
+
+        Tout autre poste négatif est ramené à 0 et son montant retiré au prorata
+        des postes encore positifs.
+
+        Le décalage t0 est laissé hors de la répartition : c'est une position
+        dans le temps, pas une quantité, et le réduire décalerait le début de la
+        barre.
+
+        Les valeurs réelles restent dans df_analyse : le survol continue de les
+        afficher, c'est là qu'on lit la décomposition exacte.
+        """
+        affichage = df.copy()
+        rang = {c: i for i, c in enumerate(colonnes)}
+        postes = affichage[colonnes].to_numpy(dtype=float).copy()
+
+        absorbables = [i for c, i in rang.items() if c != "date début t0 (mois)"]
+
+        # 1. Cycle SAP négatif : absorbé par les trois postes dont il est le résidu
+        i_sap = rang.get("Cycle SAP (mois)")
+        groupe = [rang[c] for c in GROUPE_CYCLE_SAP if c in rang]
+        if i_sap is not None and groupe:
+            for ligne in np.where(postes[:, i_sap] < 0)[0]:
+                deficit = -postes[ligne, i_sap]
+                postes[ligne, i_sap] = 0.0
+                disponible = postes[ligne, groupe].clip(min=0)
+                base = disponible.sum()
+                if base > 0:
+                    postes[ligne, groupe] = disponible * max(
+                        0.0, 1.0 - min(deficit, base) / base
+                    )
+
+        # 2. Filet de sécurité : tout autre négatif, au prorata du reste
+        for ligne in np.where((postes[:, absorbables] < 0).any(axis=1))[0]:
+            valeurs = postes[ligne, absorbables]
+            deficit = -valeurs[valeurs < 0].sum()
+            valeurs = valeurs.clip(min=0)
+            base = valeurs.sum()
+            if base > 0:
+                valeurs = valeurs * max(0.0, 1.0 - min(deficit, base) / base)
+            postes[ligne, absorbables] = valeurs
+
+        for colonne, i in rang.items():
+            affichage[colonne] = np.round(np.maximum(postes[:, i], 0.0), 2)
+
+        return affichage
+
+    # Version du DataFrame destinée au tracé
+    df_analyse_positive = ajuster_pour_affichage(
+        df_analyse, LISTE_COL_INTERET_ANALYSE
+    )
+
+    # Check de la valeur visible de chaque légende pour l'affichée masquée ou pas lors du retraçage du graphique
+    trace_visibility = {
+        json_obj["name"]: json_obj["visible"] for json_obj in traceStatus
+    }
+
+    # Traçage de chaque colonne
+    fig = go.Figure()
+
+    for col in LISTE_COL_INTERET_ANALYSE:  # MODIF GRAPH-5 : liste locale
+
+        visible = None if trace_visibility.get(col) != "legendonly" else "legendonly"
