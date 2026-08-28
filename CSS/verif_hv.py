@@ -59,14 +59,85 @@ def colonnes_du_survol(bloc):
     m = re.search(r"liste_hover_template_analyse = (\[.*?\n    \])", bloc, re.S)
     if not m:
         return None
-    return ast.literal_eval(re.sub(r"#.*", "", m.group(1)))
+    return ast.literal_eval(m.group(1))
+
+
+def liste_module(source, nom):
+    m = re.search(nom + r" = (\[.*?\n\])", source, re.S)
+    return ast.literal_eval(m.group(1)) if m else None
+
+
+def dico_module(source, nom):
+    m = re.search(nom + r" = (\{.*?\n\})", source, re.S)
+    return ast.literal_eval(m.group(1)) if m else None
+
+
+def coherence_des_postes(source):
+    """Un poste doit exister aux quatre endroits, sinon il disparaît en silence.
+
+    C'est le piège principal : un poste présent dans le survol mais absent de
+    LISTE_COL_INTERET_ANALYSE n'est pas tracé — et surtout il ne compte pas dans
+    le Délai total, puisque c'est cette liste que somme calculer_delai_total_et_t0.
+    Le survol annonce alors un total qui ne correspond à rien de dessiné.
+    """
+    print()
+    print("=" * 78)
+    print("COHÉRENCE DES POSTES")
+    print("=" * 78)
+
+    postes = liste_module(source, "LISTE_COL_INTERET_ANALYSE")
+    couleurs = dico_module(source, "DICO_COLOR")
+    if postes is None or couleurs is None:
+        print("  LISTE_COL_INTERET_ANALYSE ou DICO_COLOR introuvable")
+        return 1
+
+    anomalies = 0
+    print("  LISTE_COL_INTERET_ANALYSE ({} postes) :".format(len(postes)))
+    for poste in postes:
+        print("    {}".format(poste))
+
+    sans_couleur = [p for p in postes if p not in couleurs]
+    if sans_couleur:
+        print("\n  ECHEC  postes sans couleur (KeyError au tracé) : {}".format(
+            sans_couleur))
+        anomalies += len(sans_couleur)
+
+    # colonnes calculées qui ressemblent à un poste mais ne sont pas tracées
+    calculees = set(re.findall(r'df_power_bi\["([^"]+ \(mois\))"\]\s*=', source))
+    calculees = {c for c in calculees if not c.endswith(" raw")}
+    orphelines = sorted(c for c in calculees
+                        if c not in postes and c not in
+                        ("Cycle Industriel Optimal (mois)",
+                         "Complément au cycle industriel (mois)",
+                         "Appros Longs (mois)", "Delta SAP (mois)"))
+    if orphelines:
+        print("\n  ECHEC  calculées mais absentes de LISTE_COL_INTERET_ANALYSE :")
+        for c in orphelines:
+            print("           {}".format(c))
+        print("         Elles ne sont ni tracées ni comptées dans le Délai total.")
+        anomalies += len(orphelines)
+
+    # postes présents dans le survol mais pas tracés
+    for nom, bloc in routes(source):
+        survol = colonnes_du_survol(bloc) or []
+        manquants = [c for c in survol
+                     if c.endswith("(mois)") and c not in postes
+                     and c != "Délai total (mois)"]
+        if manquants:
+            print("\n  ECHEC  [{}] dans le survol mais pas tracés : {}".format(
+                nom, manquants))
+            anomalies += len(manquants)
+
+    if not anomalies:
+        print("\n  OK     chaque poste est tracé, coloré et compté dans le total.")
+    return anomalies
 
 
 def main():
     chemin = sys.argv[1] if len(sys.argv) > 1 else "routes_graphique.py"
     source = open(chemin, encoding="utf-8").read()
 
-    anomalies = 0
+    anomalies = coherence_des_postes(source)
     for nom, bloc in routes(source):
         colonnes = colonnes_du_survol(bloc)
         print()
