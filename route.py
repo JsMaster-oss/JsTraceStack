@@ -28,6 +28,7 @@ LISTE_COL_INTERET_ANALYSE = [
     "date début t0 (mois)",
     "Tmps recep (mois)",
     "Délai sécu (mois)",
+    "Marge appro (mois)",   # MODIF GRAPH-12 : troisième terme de RG-040
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
     "Appros Longs LLI (mois)",
@@ -41,6 +42,14 @@ LISTE_COL_INTERET_ANALYSE = [
 # `Cycle SAP - ZPIF - ZO1 - ZO2`. Négatif, il signifie que ces trois postes
 # dépassent le cycle SAP réel : ce sont eux qui absorbent le dépassement à
 # l'écran, cf. ajuster_pour_affichage.
+# MODIF GRAPH-12 : les trois postes du délai de lien (RG-040). Une marge
+# positive raccourcit le lien : son segment devient négatif et se répartit sur
+# les deux autres, comme le Cycle SAP se répartit sur les postes de cycle.
+GROUPE_LIEN = [
+    "Tmps recep (mois)",
+    "Délai sécu (mois)",
+]
+
 GROUPE_CYCLE_SAP = [
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
@@ -51,6 +60,7 @@ DICO_COLOR = {
     "date début t0 (mois)": "#C8DCE7",
     "Tmps recep (mois)": "#E4DD5D",
     "Délai sécu (mois)": "#CFC841",
+    "Marge appro (mois)": "#B5A83A",
     "Délais SAP non Analysé (mois)": "#7142C6",
     "Cycle Industriel (mois)": "#073B4C",
     "Autres, Appros ou Semi-Finis (mois)": "#118AB2",
@@ -97,6 +107,26 @@ def create_graph_analyse_CCC2():
     df_power_bi["Delta SAP (mois)"] = df_power_bi["Delta SAP"].apply(
         lambda x: round(x / 20, 1)
     )
+    # MODIF GRAPH-12 : RG-040. Le délai du lien vaut
+    # Délai_Sécu + Tps_Recep - MargeAppr, et zéro dès que Cyc_Cum = 0.
+    #
+    # Le signe est inversé sur la marge pour qu'elle s'empile dans le même sens
+    # que les deux autres : une marge négative — le cas courant — allonge le
+    # lien et donne donc un segment positif.
+    if "MargeAppr" in df_power_bi.columns:
+        _marge = pd.to_numeric(df_power_bi["MargeAppr"], errors="coerce").fillna(0)
+    else:
+        # CSV antérieur à MODIF GEN-5 : la colonne n'y est pas encore. On
+        # dégrade en marge nulle plutôt que de faire tomber la route, ce qui
+        # revient au comportement d'avant RG-040. Régénérer le CSV rétablit le
+        # terme ; verification.py signale la colonne manquante en section 1.
+        _marge = pd.Series(0.0, index=df_power_bi.index)
+
+    df_power_bi["Marge appro (mois)"] = _marge.apply(lambda x: round(-x / 20, 2))
+    lien_nul = pd.to_numeric(df_power_bi["Cyc_Cum"], errors="coerce").fillna(0) == 0
+    for _colonne in ("Tmps recep (mois)", "Délai sécu (mois)", "Marge appro (mois)"):
+        df_power_bi.loc[lien_nul, _colonne] = 0.0
+
     df_power_bi["Cycle Industriel Optimal (mois)"] = df_power_bi["ZPIF"].apply(
         lambda x: round(x / 20, 1)
     )
@@ -205,9 +235,12 @@ def create_graph_analyse_CCC2():
         "Mots Clefs Complément au cycle industriel",
         "Mots Clefs Cycle Industriel Optimal",
         "Délais SAP non Analysé (mois)",
-        "Délai total (mois)",
         # MODIF GRAPH-9 : "Delta SAP (mois) raw" retirée d'ici, elle était
         # devenue un doublon exact de "Cycle SAP (mois)" (cf. MODIF GRAPH-3).
+        "Marge appro (mois)",   # MODIF GRAPH-12, index 22
+        # "Délai total (mois)" reste en DERNIÈRE position : plusieurs contrôles
+        # le lisent par l'index -1 du customdata.
+        "Délai total (mois)",
     ]
 
     # On a maintenant le df power bi
@@ -266,6 +299,8 @@ def create_graph_analyse_CCC2():
 
         hovertemplate += "<br><span style='color: #CFC841;'>&#11044;</span> Délai de sécurité: %{customdata[12]}"
         hovertemplate += "<br><span style='color: #E4DD5D;'>&#11044;</span> Temps de Réception: %{customdata[13]}"
+        # MODIF GRAPH-12
+        hovertemplate += "<br><span style='color: #B5A83A;'>&#11044;</span> Marge appro: %{customdata[22]}"
         hovertemplate += "<br><span style='color: #98d2eb;'>&#11044;</span> Décalage de t0: %{customdata[14]}"
 
         if isinstance(row["Mots Clefs Cycle Industriel Optimal"], float) and pd.isna(
@@ -273,7 +308,7 @@ def create_graph_analyse_CCC2():
         ):
             hovertemplate += "<br><span style='color: #7142c6;'>&#11044;</span> Délai SAP non analysé: %{customdata[21]}"
 
-        hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[22]}"
+        hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[23]}"
 
         # MODIF GRAPH-10 : prévenir que les segments dessinés sont plus courts
         # que les valeurs ci-dessus, sinon l'écart passe pour une erreur.
@@ -411,15 +446,34 @@ def create_graph_analyse_CCC2():
         if i_sap is not None and groupe:
             for ligne in np.where(postes[:, i_sap] < 0)[0]:
                 deficit = -postes[ligne, i_sap]
-                postes[ligne, i_sap] = 0.0
                 disponible = postes[ligne, groupe].clip(min=0)
                 base = disponible.sum()
+                absorbe = min(deficit, base)
                 if base > 0:
-                    postes[ligne, groupe] = disponible * max(
-                        0.0, 1.0 - min(deficit, base) / base
-                    )
+                    postes[ligne, groupe] = disponible * (1.0 - absorbe / base)
+                # Reliquat non absorbé : laissé négatif pour l'étape 3, sinon
+                # la barre resterait trop longue de ce montant.
+                postes[ligne, i_sap] = -(deficit - absorbe)
 
-        # 2. Filet de sécurité : tout autre négatif, au prorata du reste
+        # 2. Marge appro négative : absorbée par les deux autres postes du lien
+        i_marge = rang.get("Marge appro (mois)")
+        lien = [rang[c] for c in GROUPE_LIEN if c in rang]
+        if i_marge is not None and lien:
+            for ligne in np.where(postes[:, i_marge] < 0)[0]:
+                deficit = -postes[ligne, i_marge]
+                disponible = postes[ligne, lien].clip(min=0)
+                base = disponible.sum()
+                absorbe = min(deficit, base)
+                if base > 0:
+                    postes[ligne, lien] = disponible * (1.0 - absorbe / base)
+                postes[ligne, i_marge] = -(deficit - absorbe)
+
+        # 3. Filet de sécurité : tout négatif restant, au prorata du reste.
+        #    Quand le lien est négatif au point de dépasser la durée de la
+        #    tâche — une marge appro très supérieure à Sécu + Recep — la
+        #    contribution de l'article est négative et la barre tombe à zéro :
+        #    c'est le plus court qu'une barre puisse être. Le Délai total du
+        #    survol, lui, reste inférieur au t0 et dit la vérité.
         for ligne in np.where((postes[:, absorbables] < 0).any(axis=1))[0]:
             valeurs = postes[ligne, absorbables]
             deficit = -valeurs[valeurs < 0].sum()
@@ -596,6 +650,26 @@ def update_graph():
     df_power_bi["Appros Longs (mois) raw"] = df_power_bi["ZO1"].apply(  # MODIF GRAPH-1 : lisait "201"
         lambda x: round(x / 20, 1)
     )
+    # MODIF GRAPH-12 : RG-040. Le délai du lien vaut
+    # Délai_Sécu + Tps_Recep - MargeAppr, et zéro dès que Cyc_Cum = 0.
+    #
+    # Le signe est inversé sur la marge pour qu'elle s'empile dans le même sens
+    # que les deux autres : une marge négative — le cas courant — allonge le
+    # lien et donne donc un segment positif.
+    if "MargeAppr" in df_power_bi.columns:
+        _marge = pd.to_numeric(df_power_bi["MargeAppr"], errors="coerce").fillna(0)
+    else:
+        # CSV antérieur à MODIF GEN-5 : la colonne n'y est pas encore. On
+        # dégrade en marge nulle plutôt que de faire tomber la route, ce qui
+        # revient au comportement d'avant RG-040. Régénérer le CSV rétablit le
+        # terme ; verification.py signale la colonne manquante en section 1.
+        _marge = pd.Series(0.0, index=df_power_bi.index)
+
+    df_power_bi["Marge appro (mois)"] = _marge.apply(lambda x: round(-x / 20, 2))
+    lien_nul = pd.to_numeric(df_power_bi["Cyc_Cum"], errors="coerce").fillna(0) == 0
+    for _colonne in ("Tmps recep (mois)", "Délai sécu (mois)", "Marge appro (mois)"):
+        df_power_bi.loc[lien_nul, _colonne] = 0.0
+
     df_power_bi["Cycle Industriel Optimal (mois)"] = df_power_bi["ZPIF"].apply(
         lambda x: round(x / 20, 1)
     )
@@ -710,6 +784,9 @@ def update_graph():
         "Mots Clefs Complément au cycle industriel",
         "Mots Clefs Cycle Industriel Optimal",
         "Délais SAP non Analysé (mois)",
+        "Marge appro (mois)",   # MODIF GRAPH-12, index 21
+        # "Délai total (mois)" reste en DERNIÈRE position : plusieurs contrôles
+        # le lisent par l'index -1 du customdata.
         "Délai total (mois)",
     ]
 
@@ -759,6 +836,8 @@ def update_graph():
 
         hovertemplate += "<br><span style='color: #CFC841;'>&#11044;</span> Délai de sécurité: %{customdata[11]}"
         hovertemplate += "<br><span style='color: #E4DD5D;'>&#11044;</span> Temps de Réception: %{customdata[12]}"
+        # MODIF GRAPH-12
+        hovertemplate += "<br><span style='color: #B5A83A;'>&#11044;</span> Marge appro: %{customdata[21]}"
         hovertemplate += "<br><span style='color: #98d2eb;'>&#11044;</span> Décalage de t0: %{customdata[13]}"
 
         if isinstance(row["Mots Clefs Cycle Industriel Optimal"], float) and pd.isna(
@@ -766,7 +845,7 @@ def update_graph():
         ):
             hovertemplate += "<br><span style='color: #7142c6;'>&#11044;</span> Délai SAP non analysé: %{customdata[20]}"
 
-        hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[21]}"
+        hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[22]}"
 
         # MODIF GRAPH-10 : prévenir que les segments dessinés sont plus courts
         # que les valeurs ci-dessus, sinon l'écart passe pour une erreur.
@@ -916,15 +995,34 @@ def update_graph():
         if i_sap is not None and groupe:
             for ligne in np.where(postes[:, i_sap] < 0)[0]:
                 deficit = -postes[ligne, i_sap]
-                postes[ligne, i_sap] = 0.0
                 disponible = postes[ligne, groupe].clip(min=0)
                 base = disponible.sum()
+                absorbe = min(deficit, base)
                 if base > 0:
-                    postes[ligne, groupe] = disponible * max(
-                        0.0, 1.0 - min(deficit, base) / base
-                    )
+                    postes[ligne, groupe] = disponible * (1.0 - absorbe / base)
+                # Reliquat non absorbé : laissé négatif pour l'étape 3, sinon
+                # la barre resterait trop longue de ce montant.
+                postes[ligne, i_sap] = -(deficit - absorbe)
 
-        # 2. Filet de sécurité : tout autre négatif, au prorata du reste
+        # 2. Marge appro négative : absorbée par les deux autres postes du lien
+        i_marge = rang.get("Marge appro (mois)")
+        lien = [rang[c] for c in GROUPE_LIEN if c in rang]
+        if i_marge is not None and lien:
+            for ligne in np.where(postes[:, i_marge] < 0)[0]:
+                deficit = -postes[ligne, i_marge]
+                disponible = postes[ligne, lien].clip(min=0)
+                base = disponible.sum()
+                absorbe = min(deficit, base)
+                if base > 0:
+                    postes[ligne, lien] = disponible * (1.0 - absorbe / base)
+                postes[ligne, i_marge] = -(deficit - absorbe)
+
+        # 3. Filet de sécurité : tout négatif restant, au prorata du reste.
+        #    Quand le lien est négatif au point de dépasser la durée de la
+        #    tâche — une marge appro très supérieure à Sécu + Recep — la
+        #    contribution de l'article est négative et la barre tombe à zéro :
+        #    c'est le plus court qu'une barre puisse être. Le Délai total du
+        #    survol, lui, reste inférieur au t0 et dit la vérité.
         for ligne in np.where((postes[:, absorbables] < 0).any(axis=1))[0]:
             valeurs = postes[ligne, absorbables]
             deficit = -valeurs[valeurs < 0].sum()
