@@ -697,6 +697,17 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
         verdict("tous les postes présents dans la figure",
                 len(manquantes), len(POSTES),
                 f"absents : {manquantes}" if manquantes else "")
+        if manquantes:
+            # Un poste « absent » est presque toujours une différence
+            # d'orthographe entre ce fichier et celui des routes, pas une trace
+            # réellement manquante. Le nom doit être identique au caractère près.
+            print()
+            print("    Noms présents dans la figure :")
+            for nom in sorted(traces):
+                print(f"      {nom}")
+            print("    Comparer avec les clés de POSTES ci-dessus : espace contre")
+            print("    souligné, accent, majuscule. Un écart suffit à fausser la")
+            print("    longueur de barre sur toutes les lignes concernées.")
 
         n = len(df)
         tailles = {len(t["x"]) for t in traces.values() if "x" in t}
@@ -892,13 +903,25 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
         if reste.any():
             quantiles("résidu hors durée nulle", np.where(reste, residu, np.nan),
                       "jours")
-            print("      Ce sous-ensemble est le vrai candidat pour le délai de")
-            print("      lien RG-040 : la durée RG-038 est connue, et il reste")
-            print("      malgré tout un écart avec le compte à rebours SAP.")
+            print("      Sur ces lignes la durée RG-038 est connue : le résidu est")
+            print("      donc le seul fait du terme - MargeAppr de RG-040.")
+            if "MargeAppr" in df.columns:
+                marge = num("MargeAppr").to_numpy(dtype=float)
+                colle = reste & (np.abs(residu - marge) < 0.5)
+                print(f"      dont résidu = MargeAppr au jour près : "
+                      f"{int(colle.sum())}/{int(reste.sum())}")
+                if colle.sum() == reste.sum():
+                    print("      --> l'écart est exactement la marge. RG-040 est")
+                    print("          appliquée, et le planning s'allonge d'autant")
+                    print("          par rapport au compte à rebours SAP.")
     print()
-    print("    Ce résidu est ce que l'ancien graphique comptait en plus (ou en")
-    print("    moins) de RG-038. C'est aussi le candidat naturel pour le délai de")
-    print("    lien RG-040 dont la formule barrée n'est pas retrouvée.")
+    print("    Ce résidu est l'écart entre le planning calculé (RG-038 + RG-040)")
+    print("    et le compte à rebours de SAP. Il n'a pas vocation à être nul :")
+    print("    SAP bâtit Cyc_Cum en cumulant durée + Délai_Sécu + Tps_Recep, sans")
+    print("    le terme - MargeAppr que RG-040 ajoute. Un résidu égal à MargeAppr")
+    print("    sur une ligne est donc le comportement attendu, pas une anomalie.")
+    print("    Ce qu'il faut regarder, c'est l'ampleur : elle dit de combien le")
+    print("    planning s'écarte volontairement de SAP.")
 
     if df_excel is not None:
         colonne_marge = next(
