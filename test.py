@@ -53,14 +53,17 @@ TOLERANCE = 0.011  # les colonnes du graphique sont arrondies au centième
 COLONNES_CSV = [
     "Article", "article parent", "Analysé", "Niveau", "désignation article de tête",
     "Cyc_Cum", "Délai_Sécu", "Tps_Recep", "ZPIF", "ZO1", "ZO2", "Delta SAP",
-    "Démontré", "Risques", "Délai", "Durée restante",
+    "Démontré", "Risques", "Délai", "Durée restante", "MargeAppr",
     "Délais analysé (mois)", "Délais non analysé (mois)",
 ]
 
-# poste tracé -> (colonne source du CSV, décimales d'arrondi)
+# poste tracé -> (colonne source du CSV, décimales d'arrondi, diviseur)
+# La marge appro porte un diviseur négatif : RG-040 la SOUSTRAIT du lien, donc
+# une marge négative — le cas courant — allonge la barre.
 POSTES = {
     "Tmps recep (mois)": ("Tps_Recep", 2, 20),
     "Délai sécu (mois)": ("Délai_Sécu", 1, 20),
+    "Marge appro (mois)": ("MargeAppr", 2, -20),
     "Cycle Industriel (mois)": ("ZPIF", 1, 20),
     "Autres, Appros ou Semi-Finis (mois)": ("ZO2", 1, 20),
     "Appros Longs LLI (mois)": ("ZO1", 1, 20),
@@ -141,6 +144,8 @@ def cascade_independante(articles, parents, duree_propre):
     return np.round(t0, 2), np.round(total, 2)
 
 
+GROUPE_LIEN = ["Tmps recep (mois)", "Délai sécu (mois)"]
+
 GROUPE_CYCLE_SAP = [
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
@@ -162,13 +167,26 @@ def ajuster_affichage(calcule):
         sap = affichage["Cycle SAP (mois)"]
         negatif = sap < 0
         base = affichage.loc[negatif, groupe].clip(lower=0).sum(axis=1)
-        deficit = (-sap[negatif]).clip(upper=base)
-        facteur = (1 - deficit / base.replace(0, np.nan)).fillna(0.0).clip(lower=0)
+        absorbe = (-sap[negatif]).clip(upper=base)
+        facteur = (1 - absorbe / base.replace(0, np.nan)).fillna(0.0).clip(lower=0)
         for colonne in groupe:
             affichage.loc[negatif, colonne] = (
                 affichage.loc[negatif, colonne].clip(lower=0) * facteur
             )
-        affichage.loc[negatif, "Cycle SAP (mois)"] = 0.0
+        affichage.loc[negatif, "Cycle SAP (mois)"] = -(-sap[negatif] - absorbe)
+
+    lien = [c for c in GROUPE_LIEN if c in affichage.columns]
+    if "Marge appro (mois)" in affichage.columns and lien:
+        marge = affichage["Marge appro (mois)"]
+        negatif = marge < 0
+        base = affichage.loc[negatif, lien].clip(lower=0).sum(axis=1)
+        absorbe = (-marge[negatif]).clip(upper=base)
+        facteur = (1 - absorbe / base.replace(0, np.nan)).fillna(0.0).clip(lower=0)
+        for colonne in lien:
+            affichage.loc[negatif, colonne] = (
+                affichage.loc[negatif, colonne].clip(lower=0) * facteur
+            )
+        affichage.loc[negatif, "Marge appro (mois)"] = -(-marge[negatif] - absorbe)
 
     autres = [c for c in affichage.columns if c != "date début t0 (mois)"]
     reste = affichage[autres]
@@ -193,7 +211,13 @@ def postes_depuis_csv(df):
     for poste, (source, decimales, diviseur) in POSTES.items():
         valeurs = pd.to_numeric(df[source], errors="coerce").fillna(0.0) / diviseur
         calcule[poste] = valeurs.round(decimales) if decimales is not None else valeurs
-    return pd.DataFrame(calcule, index=df.index)
+
+    calcule = pd.DataFrame(calcule, index=df.index)
+
+    # RG-040 : le délai du lien est nul dès que Cyc_Cum = 0.
+    lien_nul = pd.to_numeric(df["Cyc_Cum"], errors="coerce").fillna(0) == 0
+    calcule.loc[lien_nul, GROUPE_LIEN + ["Marge appro (mois)"]] = 0.0
+    return calcule
 
 
 # ---------------------------------------------------------------------------
@@ -633,15 +657,15 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     verdict("Délai total - t0 = somme des postes tracés", ko, len(df),
             f"écart max {ecart_max:.4f} mois")
 
-    attendu_oui = num("Délais analysé (mois)") + calcule["Délai sécu (mois)"] \
-        + calcule["Tmps recep (mois)"]
-    attendu_non = num("Délais non analysé (mois)") + calcule["Délai sécu (mois)"] \
-        + calcule["Tmps recep (mois)"]
+    lien_trace = (calcule["Délai sécu (mois)"] + calcule["Tmps recep (mois)"]
+                  + calcule["Marge appro (mois)"])
+    attendu_oui = num("Délais analysé (mois)") + lien_trace
+    attendu_non = num("Délais non analysé (mois)") + lien_trace
     attendu = np.where(analyse, attendu_oui, attendu_non)
     ecart = (total - t0) - attendu
     ko = int((np.abs(ecart) > TOLERANCE).sum())
-    verdict("Délai total - t0 = Délai de l'article + Sécu + Recep", ko, len(df),
-            "vrai pour les deux natures d'article")
+    verdict("Délai total - t0 = Délai de l'article + délai de lien", ko, len(df),
+            "délai de lien RG-040 = Sécu + Recep - Marge, nul si Cyc_Cum = 0")
 
     if ko:
         for nom, masque in (("analysés", analyse.to_numpy()),
@@ -708,7 +732,11 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
         for poste in POSTES:
             if poste in traces and len(traces[poste]["x"]) == n:
                 longueur += np.asarray(traces[poste]["x"], dtype=float)
-        ko = int((np.abs(longueur - (total - t0)) > 0.05).sum())
+        # Une barre ne descend pas sous zéro : quand le délai de lien est
+        # négatif au point de dépasser la durée, la contribution de l'article
+        # l'est aussi et la barre est vide.
+        attendu_longueur = np.maximum(total - t0, 0.0)
+        ko = int((np.abs(longueur - attendu_longueur) > 0.05).sum())
         verdict("longueur de barre = Délai total - t0", ko, n,
                 "un segment négatif ne doit pas allonger la barre")
 
@@ -791,11 +819,15 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
             "l'arbre SAP doit être croissant vers le bas", critique=False)
 
     duree_propre_j = num("Durée restante").to_numpy(dtype=float)
-    lien_j = num("Délai_Sécu").to_numpy(dtype=float) + num("Tps_Recep").to_numpy(dtype=float)
+    # RG-040 : Délai_Sécu + Tps_Recep - MargeAppr. Les lignes à Cyc_Cum = 0 sont
+    # déjà écartées de cette section, la mise à zéro du lien ne joue donc pas.
+    lien_j = (num("Délai_Sécu").to_numpy(dtype=float)
+              + num("Tps_Recep").to_numpy(dtype=float)
+              - num("MargeAppr").to_numpy(dtype=float))
     residu = ecart_cyc - duree_propre_j - lien_j
 
     quantiles("écart Cyc_Cum(i) - Cyc_Cum(parent)", ecart_cyc, "jours")
-    quantiles("ancien calcul - nouveau (RG-038 + Sécu + Recep)", residu, "jours")
+    quantiles("écart résiduel (RG-038 + RG-040 vs SAP)", residu, "jours")
 
     # D'où viennent les résidus non nuls ? RG-038 met la durée à 0 quand
     # Appro_spec ou TyApproSpe vaut 50, alors que SAP garde son écart de
