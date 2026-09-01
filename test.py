@@ -333,6 +333,21 @@ def charger_graphique(chemin):
             cle: tableau_plotly(trace[cle]) for cle in ("x", "y", "customdata")
             if cle in trace
         }
+    # MODIF VERIF-14 : bloc ajouté. Les postes sont retrouvés par leur nom exact.
+    # Une seule majuscule d'écart — « date début T0 » contre « date début t0 » —
+    # et la trace passait pour absente : le segment n'était pas comparé, en
+    # silence. On réaligne sur l'orthographe de ce fichier quand les deux noms
+    # ne diffèrent que par la casse, et on le dit.
+    canoniques = list(POSTES) + ["date début t0 (mois)"]
+    par_casse = {nom.casefold(): nom for nom in canoniques}
+    realignes = 0
+    for nom in list(traces):
+        if nom not in canoniques and nom.casefold() in par_casse:
+            traces[par_casse[nom.casefold()]] = traces.pop(nom)
+            realignes += 1
+    if realignes:
+        print(f"  ({realignes} nom(s) de trace réaligné(s) à la casse près : la "
+              f"figure et ce fichier ne les écrivent pas pareil)")
     return traces
 
 
@@ -523,6 +538,132 @@ def designation_du_graphique(traces, df):
     if score < 0.8:
         return None, len(donnees), 0
     return meilleur, len(donnees), taille
+
+
+# MODIF VERIF-14 : deux fonctions ajoutées. La première ne regarde que la
+# figure, la seconde compare les références de la figure à celles du CSV. Aucune
+# des deux n'émet de référence ni de désignation : uniquement des comptages.
+
+def controles_internes_figure(traces):
+    """La figure est-elle cohérente avec elle-même ?
+
+    La somme des segments dessinés, t0 compris, doit valoir le Délai total que
+    le survol annonce. C'est vérifiable sans le CSV, donc même quand la figure
+    et le CSV n'ont pas le même nombre de lignes.
+
+    Si ce contrôle passe alors que le total paraît trop grand à l'écran, la
+    barre ne ment pas : c'est la cascade qui est fausse en amont, et le nombre
+    de barres est le premier endroit où regarder.
+    """
+    tailles = {len(t["x"]) for t in traces.values() if "x" in t}
+    if len(tailles) != 1:
+        return
+    n_barres = tailles.pop()
+
+    donnees = None
+    for trace in traces.values():
+        if trace.get("customdata"):
+            donnees = trace["customdata"]
+            break
+    if not donnees or len(donnees) != n_barres:
+        return
+
+    dessine = np.zeros(n_barres)
+    for nom, trace in traces.items():
+        if nom in POSTES or nom == "date début t0 (mois)":
+            x = np.asarray(trace["x"], dtype=float)
+            if len(x) == n_barres:
+                dessine += x
+
+    survol = np.array([float(c[-1]) if c[-1] not in ("", None) else np.nan
+                       for c in donnees])
+    # Un Délai total négatif est une anomalie de donnée déjà signalée en
+    # section 4 : la barre ne descend pas sous zéro, l'écart y est normal et
+    # noierait le contrôle. Ces lignes sont écartées, et comptées.
+    absurdes = survol < 0
+    comparables = ~absurdes & ~np.isnan(survol)
+    ecart = np.abs(dessine - survol)
+    ko = int((ecart[comparables] > 0.05).sum())
+    verdict("figure seule : longueur dessinée = Délai total du survol",
+            ko, int(comparables.sum()),
+            f"écart max {ecart[comparables].max():.2f} mois"
+            if comparables.any() else "")
+    if absurdes.any():
+        print(f"      {int(absurdes.sum())} barre(s) à Délai total négatif "
+              f"écartée(s) : cf. section 4.")
+    if ko:
+        print("      La barre et son survol ne racontent pas la même chose :")
+        print("      le défaut est dans le tracé, pas dans les données amont.")
+    else:
+        print("      La barre mesure bien ce que le survol annonce. Un total qui")
+        print("      paraît trop grand vient donc de la cascade, en amont — voir")
+        print("      le nombre de barres juste en dessous.")
+    quantiles("Délai total lu dans la figure", survol, "mois")
+
+
+def diagnostiquer_ecart_comptage(traces, df, barres, n):
+    """Pourquoi la figure et le CSV n'ont pas le même nombre de lignes.
+
+    Deux causes possibles, qui ne se soignent pas pareil :
+
+      - la jointure avec les fiches duplique des lignes : la figure porte alors
+        des références que le CSV a aussi, mais plus de fois ;
+      - le CSV n'est pas celui qu'a servi l'application : la figure porte alors
+        des références que le CSV ne contient pas du tout.
+
+    Le survol garde la référence article en position 1 du customdata : elle
+    suffit à trancher. Rien n'est affiché d'autre que des comptages.
+    """
+    donnees = None
+    for trace in traces.values():
+        if trace.get("customdata"):
+            donnees = trace["customdata"]
+            break
+    if not donnees:
+        print()
+        print(f"    Écart de {abs(barres - n)} barres, cause non mesurable :")
+        print("    la figure ne porte pas de customdata exploitable.")
+        return
+
+    from collections import Counter
+    figure = Counter(str(c[1]).strip() for c in donnees if len(c) > 1)
+    csv = Counter(df["Article"].astype(str).str.strip())
+
+    inconnues = {a: k for a, k in figure.items() if a not in csv}
+    en_trop = {a: k - csv[a] for a, k in figure.items()
+               if a in csv and k > csv[a]}
+    manquantes = {a: csv[a] - figure.get(a, 0) for a in csv
+                  if csv[a] > figure.get(a, 0)}
+
+    print()
+    print(f"    Écart de {barres - n:+d} barres, décomposé par référence article :")
+    print(f"      références présentes dans la figure, absentes du CSV : "
+          f"{len(inconnues):4d}  ({sum(inconnues.values())} barres)")
+    print(f"      références en double dans la figure                  : "
+          f"{len(en_trop):4d}  ({sum(en_trop.values())} barres de trop)")
+    print(f"      références du CSV absentes de la figure              : "
+          f"{len(manquantes):4d}  ({sum(manquantes.values())} lignes)")
+    print()
+
+    if sum(en_trop.values()) and not inconnues:
+        print("    --> Jointure. Les références existent bien au CSV, la figure les")
+        print("        porte simplement plusieurs fois. `generate_data_cycle`")
+        print("        déduplique sur Designation_Article seul : une même Référence")
+        print("        Article peut survivre plusieurs fois, et")
+        print("        `set_index(\"Article\").join(...)` démultiplie alors la ligne.")
+        print("        Chaque doublon ajoute une barre ET fausse la cascade, donc")
+        print("        les Délais totaux affichés au survol.")
+        print("        Vérifier que MODIF GRAPH-11 est bien appliquée aux DEUX")
+        print("        routes : drop_duplicates(subset=[\"Référence Article\"])")
+        print("        avant le set_index, dans create ET dans update.")
+    elif inconnues:
+        print("    --> Périmètres différents. La figure porte des références que ce")
+        print("        CSV ne contient pas : les deux ne viennent pas du même")
+        print("        export. Réexporter export_power_bi.csv depuis MinIO APRÈS")
+        print("        avoir retracé le graphique, puis relancer.")
+    else:
+        print("    --> Ni doublon ni référence inconnue : l'écart vient d'un autre")
+        print("        endroit. Envoyer ce bloc tel quel.")
 
 
 def section(titre):
@@ -783,23 +924,20 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
         tailles = {len(t["x"]) for t in traces.values() if "x" in t}
         ecart_comptage = tailles and tailles != {n}
 
+        # MODIF VERIF-14 : bloc ajouté. Deux contrôles internes à la figure,
+        # faits AVANT toute comparaison avec le CSV : ils tiennent même quand
+        # les deux n'ont pas le même nombre de lignes, et ils répondent seuls
+        # à « le survol annonce un total que la barre ne fait pas ».
+        controles_internes_figure(traces)
+
         if ecart_comptage:
             barres = max(tailles)
             verdict("la figure a autant de barres que le CSV a de lignes",
                     1, 1, f"figure {barres}, CSV {n}")
-            print()
-            if barres > n:
-                print(f"    La figure compte {barres - n} barres de plus que le CSV.")
-                print("    Cause probable : la jointure avec les fiches duplique des")
-                print("    lignes. `generate_data_cycle` déduplique sur")
-                print("    Designation_Article seul, donc une même Référence Article")
-                print("    peut survivre plusieurs fois, et")
-                print("    `set_index(\"Article\").join(...)` démultiplie alors la ligne.")
-                print("    Chaque doublon ajoute une barre ET fausse la cascade.")
-            else:
-                print(f"    La figure compte {n - barres} barres de moins que le CSV.")
-                print("    Le graphique et le CSV ne portent pas sur le même")
-                print("    périmètre : préciser --designation.")
+            # MODIF VERIF-14 : l'ancien texte énonçait une cause probable. Elle
+            # est maintenant mesurée : doublons de références d'un côté,
+            # références inconnues de l'autre, ça ne dit pas la même chose.
+            diagnostiquer_ecart_comptage(traces, df, barres, n)
             print()
             print("    Les comparaisons poste par poste sont sautées : elles")
             print("    n'auraient aucun sens sur des tailles différentes.")
@@ -846,7 +984,10 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
                 verdict("segment date début t0 (mois)", ko, n)
 
             donnees = traces["date début t0 (mois)"].get("customdata")
-            if donnees:
+            # MODIF VERIF-14 : « and len(donnees) == n » ajouté. Une figure dont
+            # le customdata et les x n'ont pas la même longueur faisait tomber
+            # le script sur un broadcast numpy au lieu de le dire.
+            if donnees and len(donnees) == n:
                 totaux_hover = np.array([float(c[-1]) if c[-1] not in ("", None) else np.nan
                                          for c in donnees])
                 ko = int((np.abs(totaux_hover - total) > TOLERANCE).sum())
