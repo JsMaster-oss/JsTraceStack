@@ -79,6 +79,12 @@ def coherence_des_postes(source):
     LISTE_COL_INTERET_ANALYSE n'est pas tracé — et surtout il ne compte pas dans
     le Délai total, puisque c'est cette liste que somme calculer_delai_total_et_t0.
     Le survol annonce alors un total qui ne correspond à rien de dessiné.
+
+    MODIF GRAPH-13 : une seule colonne échappe à cette règle, « Marge appro
+    (mois) ». Elle est dans le survol, elle n'est pas tracée, et elle compte
+    quand même — par le décalage t0 et non par la somme des postes, parce que
+    c'est une position dans le temps et non une quantité de travail. Elle est
+    donc citée en exception aux deux endroits ci-dessous.
     """
     print()
     print("=" * 78)
@@ -109,6 +115,14 @@ def coherence_des_postes(source):
                         if c not in postes and c not in
                         ("Cycle Industriel Optimal (mois)",
                          "Complément au cycle industriel (mois)",
+                         # MODIF GRAPH-13 : "Marge appro (mois)" ajoutée aux
+                         # exceptions. La règle de ce contrôle — une colonne
+                         # absente de LISTE_COL_INTERET_ANALYSE ne compte pas
+                         # dans le Délai total — cesse d'être vraie pour elle :
+                         # elle y entre par le décalage t0, pas par la somme
+                         # des postes. Ne pas la remettre dans la liste tracée,
+                         # c'est le bug que GRAPH-13 corrige.
+                         "Marge appro (mois)",
                          "Appros Longs (mois)", "Delta SAP (mois)"))
     if orphelines:
         print("\n  ECHEC  calculées mais absentes de LISTE_COL_INTERET_ANALYSE :")
@@ -122,7 +136,10 @@ def coherence_des_postes(source):
         survol = colonnes_du_survol(bloc) or []
         manquants = [c for c in survol
                      if c.endswith("(mois)") and c not in postes
-                     and c != "Délai total (mois)"]
+                     # MODIF GRAPH-13 : "Marge appro (mois)" exclue, comme le
+                     # Délai total. Les deux sont dans le survol sans être
+                     # tracés, et les deux comptent bien dans le total.
+                     and c not in ("Délai total (mois)", "Marge appro (mois)")]
         if manquants:
             print("\n  ECHEC  [{}] dans le survol mais pas tracés : {}".format(
                 nom, manquants))
