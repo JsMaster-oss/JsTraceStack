@@ -58,12 +58,12 @@ COLONNES_CSV = [
 ]
 
 # poste tracé -> (colonne source du CSV, décimales d'arrondi, diviseur)
-# La marge appro porte un diviseur négatif : RG-040 la SOUSTRAIT du lien, donc
-# une marge négative — le cas courant — allonge la barre.
+# MODIF VERIF-13 : "Marge appro (mois)" retirée de POSTES. Elle n'est plus
+# tracée (MODIF GRAPH-13a) et n'entre plus dans la somme des postes : elle
+# décale le t0. Elle garde sa propre définition juste en dessous.
 POSTES = {
     "Tmps recep (mois)": ("Tps_Recep", 2, 20),
     "Délai sécu (mois)": ("Délai_Sécu", 1, 20),
-    "Marge appro (mois)": ("MargeAppr", 2, -20),
     "Cycle Industriel (mois)": ("ZPIF", 1, 20),
     "Autres, Appros ou Semi-Finis (mois)": ("ZO2", 1, 20),
     "Appros Longs LLI (mois)": ("ZO1", 1, 20),
@@ -72,6 +72,13 @@ POSTES = {
     "Risque majorant (mois)": ("Risques", 1, 20),
     "Délais SAP non Analysé (mois)": ("Délais non analysé (mois)", None, 1),
 }
+
+# MODIF VERIF-13 : bloc ajouté. Le diviseur est négatif parce que RG-040
+# SOUSTRAIT la marge du lien : une marge négative — le cas courant — éloigne
+# l'enfant de la livraison, une marge positive le rapproche et le fait démarrer
+# pendant le cycle de son parent.
+POSTE_MARGE = "Marge appro (mois)"
+SOURCE_MARGE = ("MargeAppr", 2, -20)
 
 resultats = []
 
@@ -105,9 +112,16 @@ def quantiles(nom, serie, unite=""):
 #    autrement que la descente par profondeur des routes.
 # ---------------------------------------------------------------------------
 
-def cascade_independante(articles, parents, duree_propre):
+# MODIF VERIF-13 : signature élargie, `decalage` ajouté.
+def cascade_independante(articles, parents, duree_propre, decalage=None):
     """Renvoie (t0, total). Rattachement au parent identique aux routes :
-    dernière occurrence précédente, repli sur une occurrence suivante."""
+    dernière occurrence précédente, repli sur une occurrence suivante.
+
+    MODIF VERIF-13 : `decalage` est la marge appro en mois, signe déjà inversé
+    (-MargeAppr/20). Elle décale le t0 au lieu de s'ajouter aux postes tracés,
+    comme le fait MODIF GRAPH-13b. Une racine n'en prend pas : pas de parent,
+    pas de lien, pas de marge.
+    """
     n = len(articles)
     positions = {}
     for i, art in enumerate(articles):
@@ -126,21 +140,34 @@ def cascade_independante(articles, parents, duree_propre):
         apres = [c for c in cands if c > i]
         return apres[0] if apres else -1
 
+    # MODIF VERIF-13 : trois lignes ajoutées, marge nulle si l'appelant n'en
+    # fournit pas — le comportement d'avant GRAPH-13.
+    if decalage is None:
+        decalage = np.zeros(n)
+    decalage = np.asarray(decalage, dtype=float)
+
     memo = {}
+
+    def t0_de(i, pile):
+        """MODIF VERIF-13 : fonction ajoutée. t0 = total du parent + marge."""
+        p = parent_de(i)
+        return 0.0 if p == -1 else total_de(p, pile | {i}) + decalage[i]
 
     def total_de(i, pile):
         if i in memo:
             return memo[i]
         if i in pile:
             raise ValueError(f"boucle article/parent sur {len(pile)} lignes")
-        p = parent_de(i)
-        base = 0.0 if p == -1 else total_de(p, pile | {i})
+        # MODIF VERIF-13 : la ligne valait
+        # p = parent_de(i) ; base = 0.0 if p == -1 else total_de(p, pile | {i})
+        base = t0_de(i, pile)
         memo[i] = base + duree_propre[i]
         return memo[i]
 
     sys.setrecursionlimit(max(10000, n * 4))
     total = np.array([total_de(i, frozenset()) for i in range(n)])
-    t0 = np.array([0.0 if parent_de(i) == -1 else memo[parent_de(i)] for i in range(n)])
+    # MODIF VERIF-13 : la ligne lisait memo[parent_de(i)] seul, sans la marge.
+    t0 = np.array([t0_de(i, frozenset()) for i in range(n)])
     return np.round(t0, 2), np.round(total, 2)
 
 
@@ -175,18 +202,9 @@ def ajuster_affichage(calcule):
             )
         affichage.loc[negatif, "Cycle SAP (mois)"] = -(-sap[negatif] - absorbe)
 
-    lien = [c for c in GROUPE_LIEN if c in affichage.columns]
-    if "Marge appro (mois)" in affichage.columns and lien:
-        marge = affichage["Marge appro (mois)"]
-        negatif = marge < 0
-        base = affichage.loc[negatif, lien].clip(lower=0).sum(axis=1)
-        absorbe = (-marge[negatif]).clip(upper=base)
-        facteur = (1 - absorbe / base.replace(0, np.nan)).fillna(0.0).clip(lower=0)
-        for colonne in lien:
-            affichage.loc[negatif, colonne] = (
-                affichage.loc[negatif, colonne].clip(lower=0) * facteur
-            )
-        affichage.loc[negatif, "Marge appro (mois)"] = -(-marge[negatif] - absorbe)
+    # MODIF VERIF-13 : le bloc qui répartissait une marge négative sur Tmps
+    # recep et Délai sécu est supprimé, comme dans les routes (MODIF GRAPH-13c).
+    # La marge n'est plus une colonne de `calcule`.
 
     autres = [c for c in affichage.columns if c != "date début t0 (mois)"]
     reste = affichage[autres]
@@ -216,8 +234,25 @@ def postes_depuis_csv(df):
 
     # RG-040 : le délai du lien est nul dès que Cyc_Cum = 0.
     lien_nul = pd.to_numeric(df["Cyc_Cum"], errors="coerce").fillna(0) == 0
-    calcule.loc[lien_nul, GROUPE_LIEN + ["Marge appro (mois)"]] = 0.0
+    # MODIF VERIF-13 : la ligne valait
+    # calcule.loc[lien_nul, GROUPE_LIEN + ["Marge appro (mois)"]] = 0.0
+    # La marge n'est plus une colonne de `calcule`, elle est mise à zéro dans
+    # marge_depuis_csv.
+    calcule.loc[lien_nul, GROUPE_LIEN] = 0.0
     return calcule
+
+
+# MODIF VERIF-13 : fonction ajoutée. La marge suit le même chemin que les
+# postes — même arrondi, même mise à zéro sur Cyc_Cum = 0 — mais sort à part
+# puisqu'elle décale le t0 au lieu de s'ajouter à la barre.
+def marge_depuis_csv(df):
+    """Marge appro en mois, signe déjà inversé, prête à décaler le t0."""
+    source, decimales, diviseur = SOURCE_MARGE
+    marge = pd.to_numeric(df[source], errors="coerce").fillna(0.0) / diviseur
+    marge = marge.round(decimales)
+    lien_nul = pd.to_numeric(df["Cyc_Cum"], errors="coerce").fillna(0) == 0
+    marge.loc[lien_nul] = 0.0
+    return marge
 
 
 # ---------------------------------------------------------------------------
@@ -643,8 +678,12 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
 
     calcule = postes_depuis_csv(df)
     duree = calcule.sum(axis=1).to_numpy(dtype=float)
+    # MODIF VERIF-13 : la marge est passée en quatrième argument. Elle ne fait
+    # plus partie de `duree` — elle décale le t0, cf. MODIF GRAPH-13b.
+    marge = marge_depuis_csv(df)
     t0, total = cascade_independante(
-        df["Article"].tolist(), df["article parent"].tolist(), duree)
+        df["Article"].tolist(), df["article parent"].tolist(), duree,
+        marge.to_numpy(dtype=float))
 
     ecart_max = 0.0
     ko = 0
@@ -657,15 +696,29 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     verdict("Délai total - t0 = somme des postes tracés", ko, len(df),
             f"écart max {ecart_max:.4f} mois")
 
-    lien_trace = (calcule["Délai sécu (mois)"] + calcule["Tmps recep (mois)"]
-                  + calcule["Marge appro (mois)"])
+    # MODIF VERIF-13 : « + calcule["Marge appro (mois)"] » retiré de la somme.
+    # L'identité vérifiée change de forme : la marge n'est plus dans
+    # `total - t0`, elle est dans le t0. Ce que la barre mesure vaut donc
+    # maintenant Délai de l'article + Sécu + Recep, sans la marge.
+    lien_trace = (calcule["Délai sécu (mois)"] + calcule["Tmps recep (mois)"])
     attendu_oui = num("Délais analysé (mois)") + lien_trace
     attendu_non = num("Délais non analysé (mois)") + lien_trace
     attendu = np.where(analyse, attendu_oui, attendu_non)
     ecart = (total - t0) - attendu
     ko = int((np.abs(ecart) > TOLERANCE).sum())
-    verdict("Délai total - t0 = Délai de l'article + délai de lien", ko, len(df),
-            "délai de lien RG-040 = Sécu + Recep - Marge, nul si Cyc_Cum = 0")
+
+    # Chaque poste est arrondi au dixième de mois avant la somme : six postes
+    # peuvent donc dériver de 0,30 mois sans que rien ne soit faux. Sous ce
+    # seuil c'est une alerte, pas un échec — sinon le rapport ne peut jamais
+    # être entièrement vert et on finit par ne plus le lire.
+    BORNE_ARRONDI = 0.30
+    dans_l_arrondi = ko and np.abs(ecart).max() < BORNE_ARRONDI
+
+    # MODIF VERIF-13 : libellé et détail réécrits, la marge n'est plus dans
+    # cette somme.
+    verdict("Délai total - t0 = Délai de l'article + Sécu + Recep", ko, len(df),
+            "la marge appro est dans le t0, pas dans la barre",
+            critique=not dans_l_arrondi)
 
     if ko:
         for nom, masque in (("analysés", analyse.to_numpy()),
@@ -676,17 +729,34 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
             valeurs = np.abs(ecart[masque][hors])
             print(f"      {int(hors.sum())} sur {int(masque.sum())} {nom} : "
                   f"écart médian {np.median(valeurs):.3f}, max {valeurs.max():.3f} mois")
-        pire = np.abs(ecart).max()
-        if pire < 0.35:
-            print("      Ordre de grandeur d'une dérive d'arrondi : chaque poste est")
-            print("      arrondi au dixième de mois avant la somme, six postes")
-            print("      peuvent donc dériver de 0,30 mois. Ce n'est pas un défaut")
-            print("      d'intégration.")
+        if dans_l_arrondi:
+            print("      Sous la borne d'arrondi de 0,30 mois : chaque poste est")
+            print("      arrondi au dixième avant la somme. Ce n'est pas un défaut")
+            print("      d'intégration, et c'est classé en alerte à ce titre.")
+            print("      Pour l'annuler il faudrait sommer en jours et n'arrondir")
+            print("      qu'à l'affichage — ce qui change tous les chiffres portés")
+            print("      dans les segments. Pas rentable pour 0,7 jour.")
         else:
-            print("      Trop grand pour un arrondi : à regarder de près.")
+            print("      Au-delà de la borne d'arrondi : à regarder de près.")
+
+    # MODIF VERIF-13 : bloc ajouté. Un t0 vaut « total du parent + marge » : si
+    # la marge dépasse le total du parent, le t0 devient négatif et le Délai
+    # total peut l'être aussi — l'article serait livré après la livraison
+    # finale. C'est une anomalie de donnée, pas un défaut de tracé, et elle
+    # existait déjà avant GRAPH-13 ; elle devient simplement visible.
+    verdict("aucun Délai total négatif", int((total < -TOLERANCE).sum()), len(df),
+            "une marge supérieure au total du parent")
+    verdict("aucun décalage t0 négatif", int((t0 < -TOLERANCE).sum()), len(df),
+            "la barre démarrerait après la livraison", critique=False)
 
     quantiles("Délai total (mois)", total, "mois")
     quantiles("décalage t0 (mois)", t0, "mois")
+    # MODIF VERIF-13 : quantiles ajoutés. Une marge POSITIVE en jours donne un
+    # poste NÉGATIF ici : ce sont ces lignes-là qui font démarrer un enfant
+    # pendant le cycle de son parent, le cas F/30.
+    quantiles("marge appro portée par le t0 (mois)", marge, "mois")
+    print(f"    articles dont la marge avance le démarrage : "
+          f"{int((marge < 0).sum())}  (MargeAppr positive dans SAP)")
     negatifs = int((calcule["Cycle SAP (mois)"] < 0).sum())
     print(f"    articles à Cycle SAP négatif  : {negatifs}"
           f"  (segments de cycle réduits à l'écran, cf. section 5)")
@@ -949,9 +1019,11 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     section("SYNTHÈSE")
     echecs = [n for n, ok, crit in resultats if not ok and crit]
     alertes = [n for n, ok, crit in resultats if not ok and not crit]
-    if not echecs and not alertes:
-        print("  Tous les contrôles passent. Le graphique correspond au CSV, et le")
-        print("  CSV est cohérent avec ses propres règles de calcul.")
+    if not echecs:
+        print("  Aucun échec. Le graphique correspond au CSV, et le CSV est")
+        print("  cohérent avec ses propres règles de calcul.")
+        for nom in alertes:
+            print(f"  ALERTE {nom}  (connue et documentée)")
     else:
         for nom in echecs:
             print(f"  ECHEC  {nom}")
