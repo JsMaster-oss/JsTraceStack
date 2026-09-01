@@ -28,7 +28,12 @@ LISTE_COL_INTERET_ANALYSE = [
     "date début t0 (mois)",
     "Tmps recep (mois)",
     "Délai sécu (mois)",
-    "Marge appro (mois)",   # MODIF GRAPH-12 : troisième terme de RG-040
+    # MODIF GRAPH-13 : "Marge appro (mois)" retirée d'ici. Elle vaut
+    # -MargeAppr/20 : une marge positive donnait un segment négatif, que Plotly
+    # n'empile pas et qu'ajuster_pour_affichage faisait absorber par le cycle de
+    # l'article. La marge est une position dans le temps, pas une quantité de
+    # travail : elle est passée dans le décalage t0, cf. MODIF GRAPH-13b.
+    # La colonne reste calculée et reste dans le survol, seul son tracé part.
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
     "Appros Longs LLI (mois)",
@@ -42,13 +47,9 @@ LISTE_COL_INTERET_ANALYSE = [
 # `Cycle SAP - ZPIF - ZO1 - ZO2`. Négatif, il signifie que ces trois postes
 # dépassent le cycle SAP réel : ce sont eux qui absorbent le dépassement à
 # l'écran, cf. ajuster_pour_affichage.
-# MODIF GRAPH-12 : les trois postes du délai de lien (RG-040). Une marge
-# positive raccourcit le lien : son segment devient négatif et se répartit sur
-# les deux autres, comme le Cycle SAP se répartit sur les postes de cycle.
-GROUPE_LIEN = [
-    "Tmps recep (mois)",
-    "Délai sécu (mois)",
-]
+# MODIF GRAPH-13 : GROUPE_LIEN supprimée. Elle listait les deux postes qui
+# absorbaient une marge négative ; la marge n'étant plus tracée, elle n'avait
+# plus d'usage.
 
 GROUPE_CYCLE_SAP = [
     "Cycle Industriel (mois)",
@@ -60,7 +61,8 @@ DICO_COLOR = {
     "date début t0 (mois)": "#C8DCE7",
     "Tmps recep (mois)": "#E4DD5D",
     "Délai sécu (mois)": "#CFC841",
-    "Marge appro (mois)": "#B5A83A",
+    # MODIF GRAPH-13 : "Marge appro (mois)": "#B5A83A" retirée, le poste
+    # n'est plus tracé.
     "Délais SAP non Analysé (mois)": "#7142C6",
     "Cycle Industriel (mois)": "#073B4C",
     "Autres, Appros ou Semi-Finis (mois)": "#118AB2",
@@ -391,12 +393,28 @@ def create_graph_analyse_CCC2():
                 profondeur[ligne] = niveau
                 niveau += 1
 
+        # MODIF GRAPH-13 : bloc ajouté. La marge appro n'est plus un poste
+        # empilé, c'est un décalage du t0. Le poste vaut -MargeAppr/20, donc une
+        # marge positive rapproche l'enfant de la livraison : il démarre pendant
+        # le cycle de son parent, ce qu'attend le métier sur un F/30.
+        #
+        # Le Délai total est inchangé au centime près — c'est le même terme, il
+        # change seulement de place dans l'addition — mais la barre dessinée
+        # redevient égale à ce total, ce qui n'était plus le cas dès qu'une
+        # marge positive dépassait Sécu + Recep.
+        #
+        # Une racine garde t0 = 0 et sa marge n'est pas comptée : RG-040 est un
+        # délai de lien, un article de tête n'a pas de parent donc pas de lien.
+        decalage = df["Marge appro (mois)"].fillna(0).to_numpy(dtype=float)
+
         t0 = np.zeros(len(df), dtype=float)
         total = np.zeros(len(df), dtype=float)
 
         for ligne in np.argsort(profondeur, kind="stable"):
             parent = parent_pos[ligne]
-            t0[ligne] = 0.0 if parent == -1 else total[parent]
+            # MODIF GRAPH-13 : « + decalage[ligne] » ajouté, la ligne valait
+            # t0[ligne] = 0.0 if parent == -1 else total[parent]
+            t0[ligne] = 0.0 if parent == -1 else total[parent] + decalage[ligne]
             total[ligne] = duree_propre[ligne] + t0[ligne]
 
         df["date début t0 (mois)"] = np.round(t0, 2)
@@ -455,18 +473,11 @@ def create_graph_analyse_CCC2():
                 # la barre resterait trop longue de ce montant.
                 postes[ligne, i_sap] = -(deficit - absorbe)
 
-        # 2. Marge appro négative : absorbée par les deux autres postes du lien
-        i_marge = rang.get("Marge appro (mois)")
-        lien = [rang[c] for c in GROUPE_LIEN if c in rang]
-        if i_marge is not None and lien:
-            for ligne in np.where(postes[:, i_marge] < 0)[0]:
-                deficit = -postes[ligne, i_marge]
-                disponible = postes[ligne, lien].clip(min=0)
-                base = disponible.sum()
-                absorbe = min(deficit, base)
-                if base > 0:
-                    postes[ligne, lien] = disponible * (1.0 - absorbe / base)
-                postes[ligne, i_marge] = -(deficit - absorbe)
+        # MODIF GRAPH-13 : l'étape « 2. Marge appro négative », qui répartissait
+        # le segment de marge sur Tmps recep et Délai sécu, est supprimée. La
+        # marge n'est plus un poste tracé (MODIF GRAPH-13a) : elle n'apparaît
+        # plus dans `colonnes`, donc dans `rang`, et le bloc ne s'exécutait plus.
+        # Supprimé plutôt que laissé : du code mort qui a l'air vivant.
 
         # 3. Filet de sécurité : tout négatif restant, au prorata du reste.
         #    Quand le lien est négatif au point de dépasser la durée de la
@@ -941,12 +952,28 @@ def update_graph():
                 profondeur[ligne] = niveau
                 niveau += 1
 
+        # MODIF GRAPH-13 : bloc ajouté. La marge appro n'est plus un poste
+        # empilé, c'est un décalage du t0. Le poste vaut -MargeAppr/20, donc une
+        # marge positive rapproche l'enfant de la livraison : il démarre pendant
+        # le cycle de son parent, ce qu'attend le métier sur un F/30.
+        #
+        # Le Délai total est inchangé au centime près — c'est le même terme, il
+        # change seulement de place dans l'addition — mais la barre dessinée
+        # redevient égale à ce total, ce qui n'était plus le cas dès qu'une
+        # marge positive dépassait Sécu + Recep.
+        #
+        # Une racine garde t0 = 0 et sa marge n'est pas comptée : RG-040 est un
+        # délai de lien, un article de tête n'a pas de parent donc pas de lien.
+        decalage = df["Marge appro (mois)"].fillna(0).to_numpy(dtype=float)
+
         t0 = np.zeros(len(df), dtype=float)
         total = np.zeros(len(df), dtype=float)
 
         for ligne in np.argsort(profondeur, kind="stable"):
             parent = parent_pos[ligne]
-            t0[ligne] = 0.0 if parent == -1 else total[parent]
+            # MODIF GRAPH-13 : « + decalage[ligne] » ajouté, la ligne valait
+            # t0[ligne] = 0.0 if parent == -1 else total[parent]
+            t0[ligne] = 0.0 if parent == -1 else total[parent] + decalage[ligne]
             total[ligne] = duree_propre[ligne] + t0[ligne]
 
         df["date début t0 (mois)"] = np.round(t0, 2)
@@ -1004,18 +1031,11 @@ def update_graph():
                 # la barre resterait trop longue de ce montant.
                 postes[ligne, i_sap] = -(deficit - absorbe)
 
-        # 2. Marge appro négative : absorbée par les deux autres postes du lien
-        i_marge = rang.get("Marge appro (mois)")
-        lien = [rang[c] for c in GROUPE_LIEN if c in rang]
-        if i_marge is not None and lien:
-            for ligne in np.where(postes[:, i_marge] < 0)[0]:
-                deficit = -postes[ligne, i_marge]
-                disponible = postes[ligne, lien].clip(min=0)
-                base = disponible.sum()
-                absorbe = min(deficit, base)
-                if base > 0:
-                    postes[ligne, lien] = disponible * (1.0 - absorbe / base)
-                postes[ligne, i_marge] = -(deficit - absorbe)
+        # MODIF GRAPH-13 : l'étape « 2. Marge appro négative », qui répartissait
+        # le segment de marge sur Tmps recep et Délai sécu, est supprimée. La
+        # marge n'est plus un poste tracé (MODIF GRAPH-13a) : elle n'apparaît
+        # plus dans `colonnes`, donc dans `rang`, et le bloc ne s'exécutait plus.
+        # Supprimé plutôt que laissé : du code mort qui a l'air vivant.
 
         # 3. Filet de sécurité : tout négatif restant, au prorata du reste.
         #    Quand le lien est négatif au point de dépasser la durée de la
