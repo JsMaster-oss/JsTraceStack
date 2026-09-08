@@ -826,7 +826,8 @@ def controles_internes_figure(traces):
     quantiles("Délai total lu dans la figure", survol, "mois")
 
 
-def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None):
+def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None,
+                                 ecarts=None):
     """Pourquoi la figure et le CSV n'ont pas le même nombre de lignes.
 
     Deux causes possibles, qui ne se soignent pas pareil :
@@ -860,6 +861,23 @@ def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None):
     manquantes = {a: csv[a] - figure.get(a, 0) for a in csv
                   if csv[a] > figure.get(a, 0)}
 
+    # MODIF VERIF-26 : la liste nominative part dans un fichier LOCAL, jamais
+    # dans le rapport. C'est elle qui permet d'aller voir ce qui manque.
+    if ecarts:
+        with open(ecarts, "w", encoding="utf-8") as f:
+            f.write("# références de la figure absentes du sous-ensemble comparé\n")
+            for a_, k in sorted(inconnues.items()):
+                f.write(f"{a_}\t{k} barre(s)\n")
+            f.write("\n# références en double dans la figure\n")
+            for a_, k in sorted(en_trop.items()):
+                f.write(f"{a_}\t{k} de trop\n")
+            f.write("\n# lignes du CSV absentes de la figure\n")
+            for a_, k in sorted(manquantes.items()):
+                f.write(f"{a_}\t{k} ligne(s)\n")
+        print()
+        print(f"    Liste nominative écrite dans « {ecarts} » — elle reste sur ta")
+        print("    machine, elle n'est pas dans ce rapport.")
+
     print()
     print(f"    Écart de {barres - n:+d} barres, décomposé par référence article :")
     print(f"      références présentes dans la figure, absentes du CSV : "
@@ -890,8 +908,26 @@ def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None):
         if df_complet is not None:
             tout = set(df_complet["Article"].astype(str).str.strip())
             ailleurs = sum(1 for a in inconnues if a in tout)
-        print(f"    dont présentes ailleurs dans le fichier, sous une autre")
+            print(f"    dont présentes ailleurs dans le fichier, sous une autre")
         print(f"    désignation article de tête : {ailleurs} sur {len(inconnues)}")
+
+        # MODIF VERIF-26 : les parents introuvables de la section 3 sont-ils
+        # parmi ces références ? Si oui, une seule cause explique les deux
+        # symptômes : le CSV a perdu des lignes que l'application, elle, avait.
+        presents = set(df["Article"].astype(str).str.strip())
+        parents_manquants = {p for p in df["article parent"].astype(str).str.strip()
+                             if p and p not in presents}
+        croisement = parents_manquants & set(inconnues)
+        if parents_manquants:
+            print(f"    dont parents introuvables de la section 3 : "
+                  f"{len(croisement)} sur {len(parents_manquants)}")
+            if croisement:
+                print()
+                print("    --> UNE SEULE CAUSE pour les deux symptômes. Les lignes")
+                print("        que la figure a en plus sont exactement celles qui")
+                print("        manquent au CSV, et leur absence orpheline les")
+                print("        composants restés dessous. Ce n'est pas deux")
+                print("        problèmes, c'est un CSV amputé.")
         print()
         if ailleurs == len(inconnues):
             print("    --> Mauvaise désignation retenue, pas un mauvais fichier.")
@@ -927,7 +963,7 @@ def section(titre):
     print("=" * 78)
 
 
-def verifier(df, traces, df_excel, designation, df_avant=None):
+def verifier(df, traces, df_excel, designation, df_avant=None, ecarts=None):
     barres_figure, lignes_csv = 0, 0
     if traces and not designation:
         designation, barres_figure, lignes_csv = designation_du_graphique(traces, df)
@@ -1285,7 +1321,8 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
             # MODIF VERIF-14 : l'ancien texte énonçait une cause probable. Elle
             # est maintenant mesurée : doublons de références d'un côté,
             # références inconnues de l'autre, ça ne dit pas la même chose.
-            diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet)
+            diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet,
+                                         ecarts)
             print()
             print("    Les comparaisons poste par poste sont sautées : elles")
             print("    n'auraient aucun sens sur des tailles différentes.")
@@ -1530,6 +1567,11 @@ def main():
     p.add_argument("--graph", help="réponse JSON d'une des deux routes de tracé")
     p.add_argument("--excel", help="export SAP brut, pour la colonne MargeAppr")
     p.add_argument("--avant", help="CSV d'avant la bascule, pour la non-régression")
+    # MODIF VERIF-26 : la seule sortie nominative du script, et elle va dans un
+    # fichier local, jamais à l'écran.
+    p.add_argument("--ecarts", metavar="CHEMIN",
+                   help="écrit dans ce fichier les références qui expliquent "
+                        "l'écart de comptage entre la figure et le CSV")
     p.add_argument("--feuille", default="export")
     p.add_argument("--designation", help="limiter à une désignation article de tête")
     args = p.parse_args()
@@ -1540,7 +1582,7 @@ def main():
 
     df_avant = charger_csv(args.avant) if args.avant else None
 
-    verifier(df, traces, df_excel, args.designation, df_avant)
+    verifier(df, traces, df_excel, args.designation, df_avant, args.ecarts)
     return 1 if any(not ok and crit for _, ok, crit in resultats) else 0
 
 
