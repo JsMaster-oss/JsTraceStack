@@ -51,6 +51,9 @@ import pandas as pd
 TOLERANCE = 0.011  # les colonnes du graphique sont arrondies au centième
 
 COLONNES_CSV = [
+    # MODIF VERIF-23 : "Type_appro" et "Appro_spec" ajoutées. Sans elles, la
+    # règle GRAPH-23 ne peut pas s'appliquer et tout est planifié en silence.
+    "Type_appro", "Appro_spec",
     "Article", "article parent", "Analysé", "Niveau", "désignation article de tête",
     "Cyc_Cum", "Délai_Sécu", "Tps_Recep", "ZPIF", "ZO1", "ZO2", "Delta SAP",
     "Démontré", "Risques", "Délai", "Durée restante", "MargeAppr",
@@ -113,7 +116,15 @@ def quantiles(nom, serie, unite=""):
 # ---------------------------------------------------------------------------
 
 # MODIF VERIF-13 : signature élargie, `decalage` ajouté.
-def cascade_independante(articles, parents, duree_propre, decalage=None):
+# MODIF VERIF-16 : `reductibles` et `analyse` ajoutés, et la fonction renvoie
+# désormais un troisième élément, les postes réductibles après rognage.
+# MODIF VERIF-19 : `protege` ajouté, la somme des postes du parent que le t0
+# d'un enfant ne prend pas en compte.
+# MODIF VERIF-23 : `planifie` ajouté. Un article non planifié — tout ce qui est
+# sous un achat, cf. GRAPH-23 — n'a aucun cycle : sa barre est vide.
+def cascade_independante(articles, parents, duree_propre, decalage=None,
+                         reductibles=None, analyse=None, protege=None,
+                         planifie=None):
     """Renvoie (t0, total). Rattachement au parent identique aux routes :
     dernière occurrence précédente, repli sur une occurrence suivante.
 
@@ -146,32 +157,173 @@ def cascade_independante(articles, parents, duree_propre, decalage=None):
         decalage = np.zeros(n)
     decalage = np.asarray(decalage, dtype=float)
 
-    memo = {}
+    # MODIF VERIF-16 : bloc ajouté. `reductibles` est la matrice des postes que
+    # la marge peut rogner sur un analysé, `analyse` le masque des lignes
+    # concernées. Sans eux, on retombe sur le comportement d'avant GRAPH-16.
+    if reductibles is None:
+        reductibles = np.zeros((n, 0))
+    reductibles = np.asarray(reductibles, dtype=float).copy()
+    if analyse is None:
+        analyse = np.zeros(n, dtype=bool)
+    analyse = np.asarray(analyse, dtype=bool)
 
-    def t0_de(i, pile):
-        """MODIF VERIF-13 : fonction ajoutée. t0 = total du parent + marge."""
-        p = parent_de(i)
-        return 0.0 if p == -1 else total_de(p, pile | {i}) + decalage[i]
+    # MODIF VERIF-19 : sans protégés, on retombe sur le comportement d'avant
+    # GRAPH-19, où le t0 partait du Délai total entier du parent.
+    if protege is None:
+        protege = np.zeros(n)
+    protege = np.asarray(protege, dtype=float)
+
+    # MODIF VERIF-23 : sans le masque, tout est planifié — comportement d'avant
+    # GRAPH-23. Les postes d'une ligne non planifiée sont annulés ici, ce qui
+    # met sa durée propre et ses réductibles à zéro d'un coup.
+    if planifie is None:
+        planifie = np.ones(n, dtype=bool)
+    planifie = np.asarray(planifie, dtype=bool)
+    duree_propre = np.asarray(duree_propre, dtype=float).copy()
+    duree_propre[~planifie] = 0.0
+    reductibles[~planifie, :] = 0.0
+
+    memo = {}
+    valeurs_t0 = np.zeros(n)
+    ronge = np.zeros(n)  # ce que la marge a effectivement pris sur les postes
 
     def total_de(i, pile):
         if i in memo:
             return memo[i]
         if i in pile:
             raise ValueError(f"boucle article/parent sur {len(pile)} lignes")
+        p = parent_de(i)
         # MODIF VERIF-13 : la ligne valait
-        # p = parent_de(i) ; base = 0.0 if p == -1 else total_de(p, pile | {i})
-        base = t0_de(i, pile)
-        memo[i] = base + duree_propre[i]
+        # base = 0.0 if p == -1 else total_de(p, pile | {i})
+        # MODIF VERIF-19 : « - protege[p] » ajouté. Un enfant est attendu au
+        # début du TRAVAIL de son parent, retards démontrés et risque majorant
+        # déduits, et non au tout début de sa barre.
+        base = (0.0 if p == -1
+                else total_de(p, pile | {i}) - protege[p] + decalage[i])
+
+        # MODIF VERIF-16 : sur un analysé, une marge qui raccourcit ne pousse
+        # pas le t0 sous zéro ; ce qui dépasse est pris sur les postes
+        # réductibles, dans l'ordre, et ce qui reste au-delà est perdu.
+        if p != -1 and analyse[i] and decalage[i] < 0:
+            valeurs_t0[i] = max(base, 0.0)
+            reste = -min(base, 0.0)
+            for k in range(reductibles.shape[1]):
+                if reste <= 0:
+                    break
+                pris = min(reste, max(reductibles[i, k], 0.0))
+                reductibles[i, k] -= pris
+                ronge[i] += pris
+                reste -= pris
+        else:
+            valeurs_t0[i] = base
+
+        memo[i] = valeurs_t0[i] + duree_propre[i] - ronge[i]
         return memo[i]
 
     sys.setrecursionlimit(max(10000, n * 4))
     total = np.array([total_de(i, frozenset()) for i in range(n)])
     # MODIF VERIF-13 : la ligne lisait memo[parent_de(i)] seul, sans la marge.
-    t0 = np.array([t0_de(i, frozenset()) for i in range(n)])
-    return np.round(t0, 2), np.round(total, 2)
+    # MODIF VERIF-16 : le t0 est désormais retenu pendant la descente.
+    return np.round(valeurs_t0, 2), np.round(total, 2), np.round(reductibles, 2)
+
+
+# MODIF VERIF-23 : fonction ajoutée, jumelle de la règle de GRAPH-23.
+def articles_planifies(df):
+    """Quelles lignes le calcul de besoins planifie-t-il ?
+
+    RG-038 le dit : Type_appro "E" prend un cycle de fabrication, "F" un délai
+    d'approvisionnement. Un article fabriqué éclate sa nomenclature ; un
+    article acheté ne l'éclate pas, ce que le fournisseur a fait est déjà dans
+    son délai. Rien n'est donc planifié sous un achat, à un cran près :
+    l'appro confiée F/30, où c'est nous qui fournissons les composants.
+
+    Le rattachement au parent reprend la règle du graphique : dernière
+    occurrence précédente, repli sur une occurrence suivante.
+    """
+    n = len(df)
+    if "Type_appro" not in df.columns:
+        return np.ones(n, dtype=bool)
+
+    articles = df["Article"].astype(str).tolist()
+    refs = df["article parent"].astype(str).tolist()
+    positions = {}
+    for i, art in enumerate(articles):
+        positions.setdefault(art, []).append(i)
+
+    parent_pos = np.full(n, -1, dtype=int)
+    for i, ref in enumerate(refs):
+        cands = positions.get(ref, [])
+        avant = [c for c in cands if c < i]
+        apres = [c for c in cands if c > i]
+        if avant:
+            parent_pos[i] = avant[-1]
+        elif apres:
+            parent_pos[i] = apres[0]
+
+    profondeur = np.zeros(n, dtype=int)
+    for depart in range(n):
+        courant, d, vus = parent_pos[depart], 0, set()
+        while courant != -1 and courant not in vus:
+            vus.add(courant)
+            d += 1
+            courant = parent_pos[courant]
+        profondeur[depart] = d
+
+    type_appro = df["Type_appro"].astype(str).str.strip().str.upper().to_numpy()
+    if "Appro_spec" in df.columns:
+        spec = pd.to_numeric(df["Appro_spec"], errors="coerce").fillna(0).to_numpy()
+    else:
+        spec = np.zeros(n)
+
+    planifie = np.ones(n, dtype=bool)
+    for ligne in np.argsort(profondeur, kind="stable"):
+        parent = parent_pos[ligne]
+        if parent == -1:
+            continue
+        if not planifie[parent]:
+            planifie[ligne] = False
+        elif type_appro[parent] == "F":
+            planifie[ligne] = spec[parent] == 30
+    return planifie
 
 
 GROUPE_LIEN = ["Tmps recep (mois)", "Délai sécu (mois)"]
+
+# MODIF VERIF-16 : bloc ajouté, jumeau de BLOC_REDUCTIBLE dans les routes. Sur
+# un ANALYSÉ, une marge qui raccourcit consomme le t0 puis ces postes, dans cet
+# ordre, et s'arrête là. Cycle SAP, retards démontrés et risque majorant sont
+# protégés. Les non analysés gardent le décalage de t0 sans borne.
+BLOC_REDUCTIBLE = [
+    "Tmps recep (mois)",
+    "Délai sécu (mois)",
+    "Cycle Industriel (mois)",
+    "Autres, Appros ou Semi-Finis (mois)",
+    "Appros Longs LLI (mois)",
+    # MODIF VERIF-18 : "Cycle SAP (mois)" ajoutée au bloc réductible. Le bloc
+    # protégé se réduit donc à deux postes : Somme des retards démontrés et
+    # Risque majorant.
+    "Cycle SAP (mois)",
+]
+
+# MODIF VERIF-19 : bloc ajouté. Les deux seuls postes qu'une marge ne peut pas
+# ronger — et, surtout, ceux que le t0 d'un enfant ne prend PAS en compte.
+#
+# Un enfant n'est pas attendu au tout début de la barre de son parent, mais au
+# début du TRAVAIL de son parent. Les retards démontrés et le risque majorant
+# sont du rembourrage posé en bout de barre, du côté le plus éloigné de la
+# livraison : le composant n'a pas à être là avant que ce rembourrage soit
+# écoulé. D'où :
+#
+#     point de départ(parent) = Délai total(parent) - retards - risque
+#     t0(enfant)              = point de départ(parent) - marge(enfant)
+#
+# Cela vaut pour TOUS les enfants, avec ou sans marge. Sur un parent non
+# analysé les deux postes valent zéro, le point de départ égale donc son Délai
+# total et rien ne change pour lui — aucun cas particulier à écrire.
+GROUPE_PROTEGE = [
+    "Somme des retards démontrés (mois)",
+    "Risque majorant (mois)",
+]
 
 GROUPE_CYCLE_SAP = [
     "Cycle Industriel (mois)",
@@ -583,17 +735,65 @@ def controles_internes_figure(traces):
     absurdes = survol < 0
     comparables = ~absurdes & ~np.isnan(survol)
     ecart = np.abs(dessine - survol)
-    ko = int((ecart[comparables] > 0.05).sum())
+    rate = comparables & (ecart > 0.05)
+    ko = int(rate.sum())
+
+    # MODIF VERIF-17 : un t0 négatif est écrêté à zéro au tracé — une barre ne
+    # démarre pas après la livraison. Elle mesure alors PLUS que son Délai
+    # total, et l'écart vaut exactement le t0 manquant. Ce n'est pas un défaut
+    # de tracé, c'est une anomalie de donnée déjà signalée en section 4 sous
+    # « aucun décalage t0 négatif » : on la compte à part.
+    t0x = traces.get("date début t0 (mois)", {}).get("x")
+    if t0x is not None and len(t0x) == n_barres:
+        ecretees = rate & (np.asarray(t0x, dtype=float) <= 1e-9) & (dessine > survol)
+    else:
+        ecretees = np.zeros(n_barres, dtype=bool)
+    n_ecretees = int(ecretees.sum())
+
     verdict("figure seule : longueur dessinée = Délai total du survol",
             ko, int(comparables.sum()),
             f"écart max {ecart[comparables].max():.2f} mois"
-            if comparables.any() else "")
+            if comparables.any() else "",
+            critique=not (n_ecretees and n_ecretees == ko))
+    if n_ecretees:
+        print(f"      dont {n_ecretees} barre(s) au t0 dessiné nul et plus longues")
+        print("      que leur total : t0 négatif écrêté à zéro, cf. section 4.")
+        if n_ecretees == ko:
+            print("      Ce sont les seules : le tracé lui-même est cohérent.")
     if absurdes.any():
         print(f"      {int(absurdes.sum())} barre(s) à Délai total négatif "
               f"écartée(s) : cf. section 4.")
-    if ko:
+    # MODIF VERIF-17 : « and n_ecretees != ko ». Quand tout l'écart s'explique
+    # par l'écrêtage d'un t0 négatif, ce bloc alarmiste n'a plus lieu d'être :
+    # il contredirait la ligne qui vient de dire que le tracé est cohérent.
+    if ko and n_ecretees != ko:
         print("      La barre et son survol ne racontent pas la même chose :")
         print("      le défaut est dans le tracé, pas dans les données amont.")
+        # MODIF VERIF-15 : le sens de l'écart, puis le profil du défaut.
+        signe = dessine[comparables] - survol[comparables]
+        if (signe <= 0.05).all():
+            print("      Le survol annonce TOUJOURS plus que la barre ne mesure :")
+            print("      le total compte quelque chose que le tracé ne dessine pas.")
+        elif (signe >= -0.05).all():
+            print("      La barre mesure TOUJOURS plus que le survol n'annonce :")
+            print("      le tracé dessine quelque chose que le total ne compte pas.")
+
+        if ko >= int(comparables.sum()) - 1:
+            print()
+            print("      Presque toutes les barres échouent, et une seule passe.")
+            print("      C'est le profil d'un poste compté dans le Délai total mais")
+            print("      pas dessiné — ou l'inverse : la barre qui passe est celle")
+            print("      où ce poste vaut zéro. Le suspect n°1 est le poste t0, qui")
+            print("      vaut 0 sur les racines et sur elles seules, et dont le nom")
+            print("      doit être identique aux quatre endroits qui le citent.")
+            print("      Lancer, sur le fichier des routes :")
+            print()
+            print("          python3 verifier_hovertemplate.py <tes_routes>.py")
+            print()
+            print("      La section « NOM DU POSTE t0 » donne les orthographes")
+            print("      trouvées et combien de fois chacune.")
+        quantiles("écart longueur - survol", np.where(comparables, ecart, np.nan),
+                  "mois")
     else:
         print("      La barre mesure bien ce que le survol annonce. Un total qui")
         print("      paraît trop grand vient donc de la cascade, en amont — voir")
@@ -822,15 +1022,46 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     # MODIF VERIF-13 : la marge est passée en quatrième argument. Elle ne fait
     # plus partie de `duree` — elle décale le t0, cf. MODIF GRAPH-13b.
     marge = marge_depuis_csv(df)
-    t0, total = cascade_independante(
+    # MODIF VERIF-16 : les postes réductibles et le masque des analysés sont
+    # passés à leur tour, et les postes rognés reviennent dans `calcule` — sans
+    # quoi la barre dessinée ne vaudrait plus Délai total - t0.
+    # MODIF VERIF-23 : les lignes non planifiées voient tous leurs postes mis
+    # à zéro AVANT toute mesure, comme le fait le graphique.
+    planifie = articles_planifies(df)
+    if not planifie.all():
+        calcule.loc[~planifie, :] = 0.0
+        duree = calcule.sum(axis=1).to_numpy(dtype=float)
+
+    reductibles = [c for c in BLOC_REDUCTIBLE if c in calcule.columns]
+    avant_rognage = calcule[reductibles].copy()
+    t0, total, rognes = cascade_independante(
         df["Article"].tolist(), df["article parent"].tolist(), duree,
-        marge.to_numpy(dtype=float))
+        marge.to_numpy(dtype=float),
+        calcule[reductibles].to_numpy(dtype=float),
+        analyse.to_numpy(),
+        # MODIF VERIF-19 : les postes protégés du parent, déduits du point de
+        # départ du t0 de chaque enfant.
+        calcule[[c for c in GROUPE_PROTEGE if c in calcule.columns]]
+        .sum(axis=1).to_numpy(dtype=float),
+        planifie)
+    for k, colonne in enumerate(reductibles):
+        calcule[colonne] = rognes[:, k]
+
+    # MODIF VERIF-16 : ce que la marge a effectivement pris, poste par poste.
+    # `duree` a été calculée AVANT le rognage : elle ne vaut plus la somme des
+    # postes tracés, il faut la reprendre après.
+    rogne = (avant_rognage - calcule[reductibles]).sum(axis=1).to_numpy(dtype=float)
+    duree_tracee = calcule.sum(axis=1).to_numpy(dtype=float)
+    quantiles("rogné par la marge sur les postes (mois)",
+              np.where(rogne > 1e-9, rogne, np.nan), "mois")
 
     ecart_max = 0.0
     ko = 0
     for i in range(len(df)):
         attendu = total[i] - t0[i]
-        obtenu = duree[i]
+        # MODIF VERIF-16 : `duree[i]` -> `duree_tracee[i]`, la somme après
+        # rognage. C'est elle que la barre dessine.
+        obtenu = duree_tracee[i]
         ecart_max = max(ecart_max, abs(attendu - obtenu))
         if abs(attendu - obtenu) > TOLERANCE:
             ko += 1
@@ -841,10 +1072,28 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     # L'identité vérifiée change de forme : la marge n'est plus dans
     # `total - t0`, elle est dans le t0. Ce que la barre mesure vaut donc
     # maintenant Délai de l'article + Sécu + Recep, sans la marge.
+    #
+    # MODIF VERIF-16 : `calcule` porte désormais les postes APRÈS rognage, donc
+    # Sécu et Recep sont lus rognés, et l'identité tient toujours. En revanche
+    # le Délai de l'article, lui, vient du CSV et n'est pas rogné : les lignes
+    # où la marge a mordu dans le cycle sortent de l'identité, c'est attendu et
+    # c'est compté juste en dessous.
     lien_trace = (calcule["Délai sécu (mois)"] + calcule["Tmps recep (mois)"])
-    attendu_oui = num("Délais analysé (mois)") + lien_trace
-    attendu_non = num("Délais non analysé (mois)") + lien_trace
+    # MODIF VERIF-16 : `- rogne_cycle`. Sécu et Recep sont lus rognés dans
+    # `lien_trace`, mais le Délai de l'article vient du CSV et ignore le
+    # rognage : ce que la marge a pris sur Cycle Industriel, Autres et Appros
+    # Longs doit donc être retranché ici, sinon l'identité tombe à faux sur les
+    # seules lignes où la règle GRAPH-16 s'est appliquée.
+    cycle_rognable = [c for c in reductibles if c not in GROUPE_LIEN]
+    rogne_cycle = (avant_rognage[cycle_rognable]
+                   - calcule[cycle_rognable]).sum(axis=1)
+    attendu_oui = num("Délais analysé (mois)") + lien_trace - rogne_cycle
+    attendu_non = num("Délais non analysé (mois)") + lien_trace - rogne_cycle
     attendu = np.where(analyse, attendu_oui, attendu_non)
+    # MODIF VERIF-23 : une ligne non planifiée n'a aucun cycle, sa barre est
+    # vide. Le Délai de l'article vient du CSV et ignore la règle : sans cette
+    # remise à zéro, l'identité tombe à faux sur toutes ces lignes.
+    attendu = np.where(planifie, attendu, 0.0)
     ecart = (total - t0) - attendu
     ko = int((np.abs(ecart) > TOLERANCE).sum())
 
