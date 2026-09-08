@@ -494,6 +494,49 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         else:
             est_analyse = np.zeros(len(df), dtype=bool)
 
+        # MODIF GRAPH-23 : ce qui est planifié, et ce qui ne l'est pas.
+        #
+        # RG-038 le dit déjà : Type_appro "E" prend Cyc_Fab., un cycle de
+        # FABRICATION ; "F" prend Delai_appr, un délai d'APPROVISIONNEMENT.
+        # E = on le fabrique, F = on l'achète.
+        #
+        # Un article fabriqué éclate sa nomenclature : ses composants doivent
+        # être là quand sa fabrication démarre — c'est la cascade normale.
+        # Un article acheté ne l'éclate pas : on reçoit la pièce finie, et ce
+        # que le fournisseur a fait pour la produire est déjà compris dans son
+        # Delai_appr. Le calcul de besoins ne planifie rien en dessous.
+        #
+        # Exception, l'appro confiée : F + Appro_spec 30, où c'est nous qui
+        # fournissons les composants. Ses enfants DIRECTS sont planifiés, avec
+        # la marge pour dire quand ils sont attendus. Un cran, pas plus : sous
+        # un enfant lui-même de type F, on retombe dans la règle générale.
+        #
+        # Un article non planifié garde son étiquette et son t0, mais tous ses
+        # postes tombent à zéro : sa barre est vide. Il ne pèse rien sur le
+        # délai, et ses propres enfants ne sont pas planifiés non plus.
+        if "Type_appro" in df.columns:
+            _type = df["Type_appro"].astype(str).str.strip().str.upper().to_numpy()
+            _spec = pd.to_numeric(df.get("Appro_spec"), errors="coerce").fillna(0) \
+                .to_numpy() if "Appro_spec" in df.columns else np.zeros(len(df))
+        else:
+            # Colonnes absentes du CSV : on planifie tout, comportement
+            # d'avant GRAPH-23. verification.py signale la colonne manquante.
+            _type = np.full(len(df), "", dtype=object)
+            _spec = np.zeros(len(df))
+
+        planifie = np.ones(len(df), dtype=bool)
+        for ligne in np.argsort(profondeur, kind="stable"):
+            parent = parent_pos[ligne]
+            if parent == -1:
+                continue
+            if not planifie[parent]:
+                planifie[ligne] = False
+            elif _type[parent] == "F":
+                planifie[ligne] = _spec[parent] == 30
+
+        valeurs[~planifie, :] = 0.0
+        duree_autres[~planifie] = 0.0
+
         t0 = np.zeros(len(df), dtype=float)
         total = np.zeros(len(df), dtype=float)
 
@@ -536,6 +579,11 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         # dessinée ne vaudrait plus Délai total - t0.
         for k, colonne in enumerate(reductibles):
             df[colonne] = np.round(valeurs[:, k], 2)
+
+        # MODIF GRAPH-23 : et les postes des articles non planifiés sont mis à
+        # zéro, tous, pas seulement les réductibles.
+        if (~planifie).any():
+            df.loc[~planifie, postes] = 0.0
 
         df["date début t0 (mois)"] = np.round(t0, 2)
         df["Délai total (mois)"] = np.round(total, 2)
