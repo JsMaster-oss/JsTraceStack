@@ -993,6 +993,35 @@ def verifier(df, traces, df_excel, designation, df_avant=None, ecarts=None):
     print(f"    {len(df)} lignes, "
           f"{df['désignation article de tête'].nunique()} désignation(s)")
 
+    # MODIF VERIF-27 : bloc ajouté. Les références SAP sont zéro-paddées, et
+    # `pd.read_csv` sans `dtype` transforme une colonne entièrement numérique en
+    # entiers — les zéros de tête disparaissent. La colonne « article parent »,
+    # elle, contient la sentinelle SP00035899, qui n'est pas un nombre : pandas
+    # la garde en texte, zéros compris.
+    #
+    # Les deux colonnes cessent alors de parler la même langue, et plus aucun
+    # parent zéro-paddé n'est retrouvé. Ce contrôle le voit AVANT que ça casse,
+    # sans dépendre du nombre d'orphelins.
+    def _zeros(colonne):
+        v = df_complet[colonne].dropna().astype(str).str.strip()
+        return int(v.str.match(r"^0\d").sum()), len(v)
+
+    z_art, n_art = _zeros("Article")
+    z_par, n_par = _zeros("article parent")
+    desaccord = (z_art == 0) != (z_par == 0)
+    verdict("Article et article parent au même format",
+            1 if desaccord else 0, 1,
+            f"zéros de tête : {z_art}/{n_art} et {z_par}/{n_par}")
+    if desaccord:
+        print("      Une colonne porte des zéros de tête, l'autre non. Aucun")
+        print("      parent zéro-paddé ne peut plus être retrouvé : chaque")
+        print("      enfant concerné devient une racine à t0 = 0.")
+        print("      Cause connue : `pd.read_csv` sans `dtype` convertit en")
+        print("      entiers une colonne entièrement numérique. « article")
+        print("      parent » y échappe grâce à la sentinelle SP00035899, qui")
+        print("      n'est pas un nombre — d'où l'asymétrie.")
+        print("      À corriger dans generateData.get_donnee_power_bi.")
+
     # MODIF VERIF-25 : deux désignations qui ne diffèrent que par une espace,
     # une casse ou un accent forment deux groupes distincts. La figure en couvre
     # alors une, le CSV comparé l'autre, et tout le reste du rapport part de
