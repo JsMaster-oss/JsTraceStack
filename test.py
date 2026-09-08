@@ -680,15 +680,40 @@ def designation_du_graphique(traces, df):
         return None, len(donnees), 0
 
     uniques = set(articles)
-    meilleur, score, taille = None, 0.0, 0
-    for tete, groupe in df.groupby("désignation article de tête"):
+    # MODIF VERIF-25 : le choix se faisait sur le seul recouvrement, et le
+    # premier arrivé au maximum gagnait. Dans une famille de produits, deux
+    # désignations partagent l'essentiel de leurs composants : on pouvait
+    # retenir la voisine, comparer la figure au mauvais sous-ensemble du CSV,
+    # et conclure à tort que les deux fichiers ne vont pas ensemble.
+    #
+    # À recouvrement égal, on départage maintenant par le nombre de lignes :
+    # celle qui en a autant que la figure a de barres est la bonne.
+    candidats = []
+    for tete, groupe in df.groupby("désignation article de tête", dropna=False):
         presents = set(groupe["Article"].astype(str))
-        recouvrement = len(uniques & presents) / len(uniques)
-        if recouvrement > score:
-            meilleur, score, taille = tete, recouvrement, len(groupe)
+        candidats.append((len(uniques & presents) / len(uniques), len(groupe)))
+    candidats.sort(key=lambda c: (-c[0], abs(c[1] - len(donnees))))
 
-    if score < 0.8:
+    if not candidats or candidats[0][0] < 0.8:
         return None, len(donnees), 0
+
+    meilleur_score = candidats[0][0]
+    ex_aequo = [c for c in candidats if meilleur_score - c[0] < 0.02]
+    for tete, groupe in df.groupby("désignation article de tête", dropna=False):
+        presents = set(groupe["Article"].astype(str))
+        if (abs(len(uniques & presents) / len(uniques) - ex_aequo[0][0]) < 1e-9
+                and len(groupe) == ex_aequo[0][1]):
+            meilleur, taille = tete, len(groupe)
+            break
+
+    if len(ex_aequo) > 1:
+        print("  (plusieurs désignations collent au graphique, départagées par")
+        print("   le nombre de lignes — recouvrement puis lignes :")
+        for sc, n in ex_aequo[:4]:
+            print(f"     {sc:6.1%}   {n:5d} lignes"
+                  + ("   <- retenue" if (sc, n) == ex_aequo[0] else ""))
+        print("   si ce n'est pas la bonne, relancer avec --designation \"...\")")
+
     return meilleur, len(donnees), taille
 
 
@@ -801,7 +826,7 @@ def controles_internes_figure(traces):
     quantiles("Délai total lu dans la figure", survol, "mois")
 
 
-def diagnostiquer_ecart_comptage(traces, df, barres, n):
+def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None):
     """Pourquoi la figure et le CSV n'ont pas le même nombre de lignes.
 
     Deux causes possibles, qui ne se soignent pas pareil :
@@ -857,10 +882,39 @@ def diagnostiquer_ecart_comptage(traces, df, barres, n):
         print("        routes : drop_duplicates(subset=[\"Référence Article\"])")
         print("        avant le set_index, dans create ET dans update.")
     elif inconnues:
-        print("    --> Périmètres différents. La figure porte des références que ce")
-        print("        CSV ne contient pas : les deux ne viennent pas du même")
-        print("        export. Réexporter export_power_bi.csv depuis MinIO APRÈS")
-        print("        avoir retracé le graphique, puis relancer.")
+        # MODIF VERIF-25 : contre-épreuve. Ces références sont absentes du
+        # sous-ensemble comparé — mais existent-elles ailleurs dans le fichier ?
+        # Si oui, ce n'est pas un CSV périmé : c'est la désignation retenue qui
+        # est la mauvaise, et c'est mon outil qui se trompe, pas les données.
+        ailleurs = 0
+        if df_complet is not None:
+            tout = set(df_complet["Article"].astype(str).str.strip())
+            ailleurs = sum(1 for a in inconnues if a in tout)
+        print(f"    dont présentes ailleurs dans le fichier, sous une autre")
+        print(f"    désignation article de tête : {ailleurs} sur {len(inconnues)}")
+        print()
+        if ailleurs == len(inconnues):
+            print("    --> Mauvaise désignation retenue, pas un mauvais fichier.")
+            print("        Toutes ces références sont bien dans le CSV, mais sous")
+            print("        une autre tête : la comparaison porte sur le mauvais")
+            print("        sous-ensemble. Deux désignations d'une même famille")
+            print("        partagent l'essentiel de leurs composants, et")
+            print("        l'identification automatique a pris la voisine.")
+            print("        Relancer en imposant la bonne :")
+            print()
+            print("            python3 verification.py --csv ... --graph ... \\")
+            print("                --designation \"LA DÉSIGNATION TRACÉE\"")
+        elif ailleurs:
+            print("    --> Cas mixte : une partie de l'écart vient de la")
+            print("        désignation retenue, le reste d'un fichier périmé.")
+            print("        Relancer avec --designation, puis réexporter si l'écart")
+            print("        persiste.")
+        else:
+            print("    --> Périmètres différents. Aucune de ces références n'est")
+            print("        dans le CSV, sous aucune désignation : les deux fichiers")
+            print("        ne viennent pas du même export. Réexporter")
+            print("        export_power_bi.csv depuis MinIO APRÈS avoir retracé le")
+            print("        graphique, puis relancer.")
     else:
         print("    --> Ni doublon ni référence inconnue : l'écart vient d'un autre")
         print("        endroit. Envoyer ce bloc tel quel.")
@@ -884,6 +938,11 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
             print(f"  (graphique de {barres_figure} barres, désignation non "
                   "identifiée — relance avec --designation \"...\")")
 
+    # MODIF VERIF-25 : l'export entier est conservé. Il sert de contre-épreuve
+    # en section 5 : une référence absente du sous-ensemble mais présente
+    # ailleurs dans le fichier ne dit pas du tout la même chose qu'une
+    # référence introuvable partout.
+    df_complet = df
     if designation:
         df = df[df["désignation article de tête"] == designation]
     df = df.reset_index(drop=True)
@@ -897,6 +956,26 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
         return
     print(f"    {len(df)} lignes, "
           f"{df['désignation article de tête'].nunique()} désignation(s)")
+
+    # MODIF VERIF-25 : deux désignations qui ne diffèrent que par une espace,
+    # une casse ou un accent forment deux groupes distincts. La figure en couvre
+    # alors une, le CSV comparé l'autre, et tout le reste du rapport part de
+    # travers sans que rien ne le dise. Contrôle fait sur l'export ENTIER.
+    tetes = df_complet["désignation article de tête"].dropna().astype(str)
+    normalisees = (tetes.str.strip().str.upper()
+                   .str.replace(r"\s+", " ", regex=True))
+    ecritures = tetes.groupby(normalisees).nunique()
+    doublons = ecritures[ecritures > 1]
+    verdict("aucune désignation en double à l'espace près",
+            len(doublons), tetes.nunique(),
+            "sinon la figure et le CSV portent sur des groupes différents")
+    if len(doublons):
+        print("      Ces désignations existent en plusieurs écritures :")
+        for forme, nb in doublons.items():
+            lignes = int((normalisees == forme).sum())
+            print(f"        {nb} écritures, {lignes} lignes au total")
+        print("      Le graphique en trace une, ce rapport en compare une autre.")
+        print("      Corriger l'export, ou imposer la bonne avec --designation.")
 
     num = lambda c: pd.to_numeric(df[c], errors="coerce").fillna(0.0)
     analyse = df["Analysé"].astype(str).str.upper() == "OUI"
@@ -1134,8 +1213,28 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
     # total peut l'être aussi — l'article serait livré après la livraison
     # finale. C'est une anomalie de donnée, pas un défaut de tracé, et elle
     # existait déjà avant GRAPH-13 ; elle devient simplement visible.
-    verdict("aucun Délai total négatif", int((total < -TOLERANCE).sum()), len(df),
-            "une marge supérieure au total du parent")
+    # MODIF VERIF-24 : le détail de ce verdict annonçait « une marge supérieure
+    # au total du parent » comme si c'était la seule cause. Il y en a deux, et
+    # elles ne se soignent pas pareil. On les sépare au lieu de les confondre.
+    negatifs = total < -TOLERANCE
+    verdict("aucun Délai total négatif", int(negatifs.sum()), len(df))
+    if negatifs.any():
+        par_t0 = negatifs & (t0 < -TOLERANCE)
+        par_poste = negatifs & ~par_t0
+        print(f"      dont t0 déjà négatif, la marge dépasse le point de départ "
+              f"du parent : {int(par_t0.sum())}")
+        print(f"      dont t0 positif mais un poste négatif, presque toujours le "
+              f"Cycle SAP : {int(par_poste.sum())}")
+        if par_poste.any():
+            sap = calcule["Cycle SAP (mois)"].to_numpy(dtype=float)
+            quantiles("Cycle SAP des lignes concernées",
+                      np.where(par_poste, sap, np.nan), "mois")
+            print("      Un Cycle SAP très négatif veut dire que les gains ZO1 et")
+            print("      ZO2 dépassent le cycle SAP réel. Le Délai de l'article en")
+            print("      devient négatif, et son Délai total avec. Ce n'est pas un")
+            print("      défaut de calcul : c'est ce que dit la fiche. À vérifier")
+            print("      côté métier sur ces lignes-là.")
+
     verdict("aucun décalage t0 négatif", int((t0 < -TOLERANCE).sum()), len(df),
             "la barre démarrerait après la livraison", critique=False)
 
@@ -1186,7 +1285,7 @@ def verifier(df, traces, df_excel, designation, df_avant=None):
             # MODIF VERIF-14 : l'ancien texte énonçait une cause probable. Elle
             # est maintenant mesurée : doublons de références d'un côté,
             # références inconnues de l'autre, ça ne dit pas la même chose.
-            diagnostiquer_ecart_comptage(traces, df, barres, n)
+            diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet)
             print()
             print("    Les comparaisons poste par poste sont sautées : elles")
             print("    n'auraient aucun sens sur des tailles différentes.")
