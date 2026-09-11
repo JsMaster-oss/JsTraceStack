@@ -1417,6 +1417,25 @@ def verifier(df, traces, df_excel, designation, df_avant=None, ecarts=None):
 
     if traces:
         section("5. RÉCONCILIATION AVEC LE GRAPHIQUE REÇU PAR LE NAVIGATEUR")
+
+        # MODIF VERIF-31 : les articles fournis quittent le graphique
+        # (GRAPH-25) mais restent dans la cascade — leurs descendants gardent
+        # la position qu'ils auraient eue. Ils sont donc écartés ICI, et ici
+        # seulement : plus tôt, la cascade de ces descendants serait fausse ;
+        # plus tard, chaque article retiré ressortirait comme une ligne
+        # « absente de la figure », un faux écart de comptage.
+        # MODIF VERIF-32 : « & planifie » ajouté, les non planifiés quittent
+        # le graphique eux aussi (GRAPH-26).
+        garde = ~fourni & planifie
+        if not garde.all():
+            print(f"  {int(fourni.sum())} article(s) « fourni. = L » et "
+                  f"{int((~planifie).sum())} non planifié(s) écartés de la "
+                  "comparaison : ils ne sont pas tracés.")
+            df = df[garde].reset_index(drop=True)
+            calcule = calcule[garde].reset_index(drop=True)
+            total, t0 = total[garde], t0[garde]
+            analyse = analyse[garde].reset_index(drop=True)
+
         manquantes = [p for p in POSTES if p not in traces]
         verdict("tous les postes présents dans la figure",
                 len(manquantes), len(POSTES),
