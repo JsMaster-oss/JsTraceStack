@@ -537,6 +537,41 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         valeurs[~planifie, :] = 0.0
         duree_autres[~planifie] = 0.0
 
+        # MODIF GRAPH-24 : la colonne « fourni. » — le point final fait partie
+        # du nom. Sur un enfant DIRECT d'un F/30, la valeur "L" veut dire que
+        # l'article est fourni : son délai est absolu, il ne dépend ni de son
+        # parent ni d'un lien.
+        #
+        #     durée totale = Delai_appr     et rien d'autre
+        #     t0           = 0              pas de décalage
+        #
+        # Sa barre va donc de 0 à Delai_appr. Le montant est porté par
+        # « Délais SAP non Analysé (mois) », le poste générique de durée SAP,
+        # y compris sur un analysé : « rien d'autre » exclut les six
+        # composantes.
+        if "fourni." in df.columns:
+            _fourni = df["fourni."].astype(str).str.strip().str.upper().to_numpy()
+        else:
+            # Colonne absente du CSV : la règle ne s'applique à personne, soit
+            # le comportement d'avant GRAPH-24. verification.py la signale.
+            _fourni = np.full(len(df), "", dtype=object)
+
+        if "Delai_appr" in df.columns:
+            _appr = (pd.to_numeric(df["Delai_appr"], errors="coerce").fillna(0)
+                     .to_numpy(dtype=float) / 20).round(1)
+        else:
+            _appr = np.zeros(len(df))
+
+        enfant_f30 = np.zeros(len(df), dtype=bool)
+        a_parent = parent_pos >= 0
+        enfant_f30[a_parent] = ((_type[parent_pos[a_parent]] == "F")
+                                & (_spec[parent_pos[a_parent]] == 30))
+        fourni_l = enfant_f30 & (_fourni == "L")
+
+        if fourni_l.any():
+            valeurs[fourni_l, :] = 0.0
+            duree_autres[fourni_l] = _appr[fourni_l]
+
         t0 = np.zeros(len(df), dtype=float)
         total = np.zeros(len(df), dtype=float)
 
@@ -551,10 +586,13 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
             # barre : les retards démontrés et le risque majorant du parent ne
             # comptent pas. Sur un parent non analysé ils valent zéro et la
             # ligne se comporte comme avant.
-            base = (0.0 if parent == -1
+            # MODIF GRAPH-24 : un article fourni ne prend ni point de départ
+            # ni marge. Sa barre démarre à zéro.
+            base = (0.0 if parent == -1 or fourni_l[ligne]
                     else total[parent] - protege[parent] + decalage[ligne])
 
-            if parent != -1 and est_analyse[ligne] and decalage[ligne] < 0:
+            if (parent != -1 and not fourni_l[ligne]
+                    and est_analyse[ligne] and decalage[ligne] < 0):
                 # MODIF GRAPH-16 : la marge consomme le t0, puis les postes
                 # réductibles dans l'ordre, et s'arrête là. `base` ci-dessus a
                 # déjà déduit la marge du t0 : s'il est négatif, c'est ce qui
@@ -584,6 +622,12 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         # zéro, tous, pas seulement les réductibles.
         if (~planifie).any():
             df.loc[~planifie, postes] = 0.0
+
+        # MODIF GRAPH-24 : les articles fournis n'ont qu'un poste, et c'est
+        # celui-là.
+        if fourni_l.any():
+            df.loc[fourni_l, postes] = 0.0
+            df.loc[fourni_l, "Délais SAP non Analysé (mois)"] = _appr[fourni_l]
 
         df["date début t0 (mois)"] = np.round(t0, 2)
         df["Délai total (mois)"] = np.round(total, 2)
