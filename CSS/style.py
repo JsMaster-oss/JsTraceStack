@@ -629,6 +629,21 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
             df.loc[fourni_l, postes] = 0.0
             df.loc[fourni_l, "Délais SAP non Analysé (mois)"] = _appr[fourni_l]
 
+        # MODIF GRAPH-25 : ces articles sont retirés du graphique, pas
+        # seulement mis à zéro. Le marqueur est posé ici et la ligne est
+        # écartée APRÈS la cascade, pour que d'éventuels descendants gardent
+        # la position qu'ils auraient eue.
+        #
+        # MODIF GRAPH-26 : « | ~planifie » ajouté. Les articles sous un achat
+        # étaient dessinés avec une barre vide — étiquette et bande de t0
+        # visibles, aucun segment. Ils sont désormais retirés eux aussi. Les
+        # deux règles se comportent donc pareil : ce qui n'est pas planifié
+        # n'apparaît pas.
+        #
+        # Sans risque d'orphelin ici : la non-planification est récursive, donc
+        # les descendants d'une ligne retirée le sont aussi, et partent avec.
+        df["_a_masquer"] = fourni_l | ~planifie
+
         df["date début t0 (mois)"] = np.round(t0, 2)
         df["Délai total (mois)"] = np.round(total, 2)
 
@@ -645,6 +660,15 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
             df_analyse[_poste] = df_analyse[_poste] * 0
 
     df_analyse = calculer_delai_total_et_t0(df_analyse, LISTE_COL_INTERET_ANALYSE)  # MODIF GRAPH-6 : passait `colonnes`
+
+    # MODIF GRAPH-25 et GRAPH-26 : quittent le graphique — ni barre, ni
+    # étiquette d'axe, ni ligne de survol — les articles fournis (délai absolu,
+    # qui ne dit rien de la cascade) et tout ce qui n'est pas planifié (sous un
+    # achat, cf. GRAPH-23). Le retrait a lieu après le calcul, donc sans effet
+    # sur la position des autres.
+    if "_a_masquer" in df_analyse.columns:
+        df_analyse = df_analyse[~df_analyse["_a_masquer"].fillna(False)].copy()
+        df_analyse = df_analyse.drop(columns="_a_masquer")
 
 
     # MODIF GRAPH-10 : remplace l'écrêtage `clip(lower=0)` — lui-même remplaçant
