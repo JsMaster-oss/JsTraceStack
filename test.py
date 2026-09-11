@@ -124,7 +124,7 @@ def quantiles(nom, serie, unite=""):
 # sous un achat, cf. GRAPH-23 — n'a aucun cycle : sa barre est vide.
 def cascade_independante(articles, parents, duree_propre, decalage=None,
                          reductibles=None, analyse=None, protege=None,
-                         planifie=None):
+                         planifie=None, racines=None):
     """Renvoie (t0, total). Rattachement au parent identique aux routes :
     dernière occurrence précédente, repli sur une occurrence suivante.
 
@@ -179,6 +179,12 @@ def cascade_independante(articles, parents, duree_propre, decalage=None,
     if planifie is None:
         planifie = np.ones(n, dtype=bool)
     planifie = np.asarray(planifie, dtype=bool)
+
+    # MODIF VERIF-30 : lignes traitées comme des racines quel que soit leur
+    # parent — les articles fournis, dont le délai est absolu.
+    if racines is None:
+        racines = np.zeros(n, dtype=bool)
+    racines = np.asarray(racines, dtype=bool)
     duree_propre = np.asarray(duree_propre, dtype=float).copy()
     duree_propre[~planifie] = 0.0
     reductibles[~planifie, :] = 0.0
@@ -192,7 +198,8 @@ def cascade_independante(articles, parents, duree_propre, decalage=None,
             return memo[i]
         if i in pile:
             raise ValueError(f"boucle article/parent sur {len(pile)} lignes")
-        p = parent_de(i)
+        # MODIF VERIF-30 : « or racines[i] ».
+        p = -1 if racines[i] else parent_de(i)
         # MODIF VERIF-13 : la ligne valait
         # base = 0.0 if p == -1 else total_de(p, pile | {i})
         # MODIF VERIF-19 : « - protege[p] » ajouté. Un enfant est attendu au
@@ -227,6 +234,29 @@ def cascade_independante(articles, parents, duree_propre, decalage=None,
     return np.round(valeurs_t0, 2), np.round(total, 2), np.round(reductibles, 2)
 
 
+# MODIF VERIF-30 : fonction extraite d'articles_planifies, qui la portait seule.
+def _positions_parents(df):
+    """Position de la ligne parente, règle du graphique : dernière occurrence
+    précédente, repli sur une occurrence suivante."""
+    n = len(df)
+    articles = df["Article"].astype(str).tolist()
+    refs = df["article parent"].astype(str).tolist()
+    positions = {}
+    for i, art in enumerate(articles):
+        positions.setdefault(art, []).append(i)
+
+    parent_pos = np.full(n, -1, dtype=int)
+    for i, ref in enumerate(refs):
+        cands = positions.get(ref, [])
+        avant = [c for c in cands if c < i]
+        apres = [c for c in cands if c > i]
+        if avant:
+            parent_pos[i] = avant[-1]
+        elif apres:
+            parent_pos[i] = apres[0]
+    return parent_pos
+
+
 # MODIF VERIF-23 : fonction ajoutée, jumelle de la règle de GRAPH-23.
 def articles_planifies(df):
     """Quelles lignes le calcul de besoins planifie-t-il ?
@@ -244,21 +274,9 @@ def articles_planifies(df):
     if "Type_appro" not in df.columns:
         return np.ones(n, dtype=bool)
 
-    articles = df["Article"].astype(str).tolist()
-    refs = df["article parent"].astype(str).tolist()
-    positions = {}
-    for i, art in enumerate(articles):
-        positions.setdefault(art, []).append(i)
-
-    parent_pos = np.full(n, -1, dtype=int)
-    for i, ref in enumerate(refs):
-        cands = positions.get(ref, [])
-        avant = [c for c in cands if c < i]
-        apres = [c for c in cands if c > i]
-        if avant:
-            parent_pos[i] = avant[-1]
-        elif apres:
-            parent_pos[i] = apres[0]
+    # MODIF VERIF-30 : le rattachement est sorti d'ici, articles_fournis en a
+    # besoin aussi et les deux doivent suivre la même règle.
+    parent_pos = _positions_parents(df)
 
     profondeur = np.zeros(n, dtype=int)
     for depart in range(n):
@@ -285,6 +303,39 @@ def articles_planifies(df):
         elif type_appro[parent] == "F":
             planifie[ligne] = spec[parent] == 30
     return planifie
+
+
+# MODIF VERIF-30 : jumelle de la règle GRAPH-24.
+def articles_fournis(df):
+    """Enfants DIRECTS d'un F/30 dont la colonne « fourni. » vaut "L".
+
+    Leur délai est absolu : durée totale = Delai_appr, t0 = 0, rien d'autre.
+    Renvoie (masque, durée en mois).
+    """
+    n = len(df)
+    vide = np.zeros(n, dtype=bool), np.zeros(n)
+    if "fourni." not in df.columns or "Type_appro" not in df.columns:
+        return vide
+
+    parent_pos = _positions_parents(df)
+    type_appro = df["Type_appro"].astype(str).str.strip().str.upper().to_numpy()
+    if "Appro_spec" in df.columns:
+        spec = pd.to_numeric(df["Appro_spec"], errors="coerce").fillna(0).to_numpy()
+    else:
+        spec = np.zeros(n)
+
+    enfant_f30 = np.zeros(n, dtype=bool)
+    a_p = parent_pos >= 0
+    enfant_f30[a_p] = ((type_appro[parent_pos[a_p]] == "F")
+                       & (spec[parent_pos[a_p]] == 30))
+
+    fourni = df["fourni."].astype(str).str.strip().str.upper().to_numpy()
+    masque = enfant_f30 & (fourni == "L")
+    if "Delai_appr" not in df.columns:
+        return masque, np.zeros(n)
+    appr = (pd.to_numeric(df["Delai_appr"], errors="coerce").fillna(0)
+            .to_numpy(dtype=float) / 20).round(1)
+    return masque, appr
 
 
 GROUPE_LIEN = ["Tmps recep (mois)", "Délai sécu (mois)"]
@@ -921,13 +972,15 @@ def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None,
         if parents_manquants:
             print(f"    dont parents introuvables de la section 3 : "
                   f"{len(croisement)} sur {len(parents_manquants)}")
+            # MODIF VERIF-28 : ce constat ne conclut plus tout seul. Il dit
+            # que les deux symptômes n'en font qu'un ; la conclusion sur la
+            # CAUSE est rendue une seule fois, plus bas. Les deux messages
+            # s'affichaient l'un après l'autre et se contredisaient.
             if croisement:
-                print()
-                print("    --> UNE SEULE CAUSE pour les deux symptômes. Les lignes")
-                print("        que la figure a en plus sont exactement celles qui")
-                print("        manquent au CSV, et leur absence orpheline les")
-                print("        composants restés dessous. Ce n'est pas deux")
-                print("        problèmes, c'est un CSV amputé.")
+                print("      Les deux échecs n'en font donc qu'un : les lignes")
+                print("      que la figure a en plus sont celles qui manquent au")
+                print("      CSV, et leur absence orpheline les composants restés")
+                print("      dessous.")
         print()
         if ailleurs == len(inconnues):
             print("    --> Mauvaise désignation retenue, pas un mauvais fichier.")
@@ -946,11 +999,27 @@ def diagnostiquer_ecart_comptage(traces, df, barres, n, df_complet=None,
             print("        Relancer avec --designation, puis réexporter si l'écart")
             print("        persiste.")
         else:
-            print("    --> Périmètres différents. Aucune de ces références n'est")
-            print("        dans le CSV, sous aucune désignation : les deux fichiers")
-            print("        ne viennent pas du même export. Réexporter")
-            print("        export_power_bi.csv depuis MinIO APRÈS avoir retracé le")
-            print("        graphique, puis relancer.")
+            print("    --> Le CSV est plus ancien que la figure. Aucune de ces")
+            print("        références n'est dans le fichier, sous aucune")
+            print("        désignation : l'application a travaillé sur un jeu de")
+            print("        données que ce CSV ne contient pas.")
+            print()
+            print("        Réexporter ne suffit pas si l'objet du bucket est lui")
+            print("        périmé. `get_donnee_power_bi` ne relit le CSV que si")
+            print("        son nom est EXACTEMENT « export_power_bi.csv » à la")
+            print("        racine ; sinon elle régénère depuis l'Excel sans")
+            print("        stocker. L'application tracerait alors l'Excel du jour")
+            print("        pendant que le bucket garde une génération ancienne,")
+            print("        et les deux ne se rejoindraient jamais.")
+            print()
+            print("        Ordre qui tranche :")
+            print("          1. appeler la route /update_info_cascade, qui")
+            print("             régénère ET stocke ;")
+            print("          2. télécharger export_power_bi.csv depuis MinIO ;")
+            print("          3. retracer le graphique et capturer graph.json ;")
+            print("          4. relancer ce rapport.")
+            print("        Si l'écart persiste après ça, l'application ne lit pas")
+            print("        l'objet que tu télécharges.")
     else:
         print("    --> Ni doublon ni référence inconnue : l'écart vient d'un autre")
         print("        endroit. Envoyer ce bloc tel quel.")
@@ -1172,24 +1241,52 @@ def verifier(df, traces, df_excel, designation, df_avant=None, ecarts=None):
     # MODIF VERIF-23 : les lignes non planifiées voient tous leurs postes mis
     # à zéro AVANT toute mesure, comme le fait le graphique.
     planifie = articles_planifies(df)
+    # MODIF VERIF-29 : la durée d'avant la règle est retenue, c'est elle qui
+    # chiffre ce que la règle retire du graphique.
+    duree_avant_regle = calcule.sum(axis=1).to_numpy(dtype=float)
     if not planifie.all():
         calcule.loc[~planifie, :] = 0.0
+        duree = calcule.sum(axis=1).to_numpy(dtype=float)
+
+    # MODIF VERIF-30 : les articles fournis n'ont qu'un poste, Délais SAP non
+    # Analysé, et il vaut Delai_appr. Leur t0 est forcé à zéro plus bas.
+    fourni, appr = articles_fournis(df)
+    if fourni.any():
+        calcule.loc[fourni, :] = 0.0
+        calcule.loc[fourni, "Délais SAP non Analysé (mois)"] = appr[fourni]
         duree = calcule.sum(axis=1).to_numpy(dtype=float)
 
     reductibles = [c for c in BLOC_REDUCTIBLE if c in calcule.columns]
     avant_rognage = calcule[reductibles].copy()
     t0, total, rognes = cascade_independante(
         df["Article"].tolist(), df["article parent"].tolist(), duree,
-        marge.to_numpy(dtype=float),
+        # MODIF VERIF-30 : un article fourni ne prend ni marge ni point de
+        # départ, sa barre démarre à zéro. On le traduit en le rendant racine
+        # pour la cascade : même effet, sans toucher à la récursion.
+        np.where(fourni, 0.0, marge.to_numpy(dtype=float)),
         calcule[reductibles].to_numpy(dtype=float),
-        analyse.to_numpy(),
+        analyse.to_numpy() & ~fourni,
         # MODIF VERIF-19 : les postes protégés du parent, déduits du point de
         # départ du t0 de chaque enfant.
         calcule[[c for c in GROUPE_PROTEGE if c in calcule.columns]]
         .sum(axis=1).to_numpy(dtype=float),
-        planifie)
+        planifie, fourni)
     for k, colonne in enumerate(reductibles):
         calcule[colonne] = rognes[:, k]
+
+    # MODIF VERIF-29 : la règle GRAPH-23, vérifiée sur les vraies données. Un
+    # article sous un achat n'est pas planifié : sa barre doit être vide. C'est
+    # la contrepartie mesurable de « il n'y a pas d'enfant ».
+    verdict("les articles non planifiés ont une barre vide",
+            int((~planifie & (duree > TOLERANCE)).sum()), len(df),
+            "rien n'est planifié sous un article de type F, hors F/30")
+    print(f"    articles non planifiés : {int((~planifie).sum())} sur {len(df)}"
+          f"  ({(~planifie).mean():.1%})")
+    if (~planifie).any():
+        quantiles("durée qu'ils auraient eue s'ils étaient planifiés",
+                  np.where(~planifie, duree_avant_regle, np.nan), "mois")
+        print("    C'est ce que la règle retire du graphique. Zéro ici alors que")
+        print("    tu attends des lignes vides = Type_appro absent ou jamais « F ».")
 
     # MODIF VERIF-16 : ce que la marge a effectivement pris, poste par poste.
     # `duree` a été calculée AVANT le rognage : elle ne vaut plus la somme des
@@ -1238,6 +1335,9 @@ def verifier(df, traces, df_excel, designation, df_avant=None, ecarts=None):
     # vide. Le Délai de l'article vient du CSV et ignore la règle : sans cette
     # remise à zéro, l'identité tombe à faux sur toutes ces lignes.
     attendu = np.where(planifie, attendu, 0.0)
+    # MODIF VERIF-30 : un article fourni ne mesure que son Delai_appr. Le
+    # Délai de l'article, lui, vient du CSV et ignore la règle.
+    attendu = np.where(fourni, appr, attendu)
     ecart = (total - t0) - attendu
     ko = int((np.abs(ecart) > TOLERANCE).sum())
 
