@@ -1,7 +1,3 @@
-"""Created on Sun Mar 5 16:41:06 2023
-
-@author: gicornu"""
-
 import datetime
 import json
 import logging
@@ -35,11 +31,11 @@ liste_attribut_export = [
     "Délai_Sécu",
     "Tps_Recep",
     "TyApproSpe",
-    # MODIF GEN-5 : colonne FV, requise par RG-040. Si le chargement plante
+    # Colonne FV, requise par RG-040. Si le chargement plante
     # ici, c'est que l'en-tête Excel ne s'appelle pas exactement "MargeAppr" :
     # relever le nom réel dans le fichier et le reporter.
     "MargeAppr",
-    # MODIF GEN-6 : colonne ajoutée, requise par la règle « fourni. = L » sur
+    # Requise par la règle « fourni. = L » sur
     # les enfants d'un F/30. Le point final fait partie du nom. Si le
     # chargement plante ici, c'est que l'en-tête Excel ne s'appelle pas
     # exactement « fourni. » : relever le nom réel et le reporter.
@@ -113,7 +109,6 @@ def _num(valeur):
     return float(valeur) if valeur not in ("", "nan") else 0.0
 
 
-# MODIF GEN-5 : RG-040, retrouvée dans le Word.
 def delai_lien(row):
     """RG-040 — délai du lien FD vers le successeur, en jours.
 
@@ -147,7 +142,6 @@ def is_appro_50(value):
 
 
 def calcul_delai_non_analyse(row, parent_cyc_cum, test_appro_50):
-    # MODIF GEN-2 : corps entièrement remplacé, voir MODIFICATIONS.md
     """Délai des articles non analysés — RG-038.
 
     La durée d'une tâche se lit dans les colonnes de cycle (Cyc_Fab. / Delai_appr),
@@ -167,12 +161,12 @@ def calcul_delai_non_analyse(row, parent_cyc_cum, test_appro_50):
         si Cyc_Cum == parent_cyc_cum       -> 0
         sinon Cyc_Cum - parent_cyc_cum - Délai_Sécu - Tps_Recep
     """
-    return duree_restante(row)  # MODIF GEN-2 : remplace l'écart de Cyc_Cum
+    return duree_restante(row)
 
 
-# MODIF GEN-4 : remplace `df.loc[df["Article"] == parent].iloc[0]`, qui prenait
-# la PREMIÈRE occurrence du parent dans tout le fichier. Deux défauts : un
-# composant monté à plusieurs endroits renvoyait toujours le premier montage, et
+# Surtout pas `df.loc[df["Article"] == parent].iloc[0]`, qui prendrait la
+# PREMIÈRE occurrence du parent dans tout le fichier. Deux défauts : un
+# composant monté à plusieurs endroits renverrait toujours le premier montage, et
 # la recherche n'était pas limitée à la désignation article de tête alors que la
 # boucle appelante l'est — un parent pouvait être capté dans un autre ensemble.
 def trouver_parent(df, index_ligne, row):
@@ -211,7 +205,7 @@ def parent_racine(date_select):
             "Délai": 0,
             "Délai_Sécu": 0,
             "Tps_Recep": 0,
-            "MargeAppr": 0,  # MODIF GEN-5 : lu par delai_lien
+            "MargeAppr": 0,  # lu par delai_lien
             "date début TO": 0,
             "date début To (mois)": 0,
             "Délais analysé (mois)": 0,
@@ -223,8 +217,8 @@ def parent_racine(date_select):
 def calcul_to(parent, delai_parent_mois):
     """date début to (jours, mois). Identique dans tous les cas.
 
-    MODIF GEN-5 : le décalage apporté par le parent est son délai de lien au
-    sens de RG-040, et non plus la simple somme Délai_Sécu + Tps_Recep.
+    Le décalage apporté par le parent est son délai de lien au sens de RG-040,
+    et non la simple somme Délai_Sécu + Tps_Recep.
     """
     lien_parent = delai_lien(parent)
     to_jours = round(
@@ -434,15 +428,13 @@ def generate_data_power_bi(config):
                         df_out_power_bi.at[index, "Date début"] = (
                             date_select + datetime.timedelta(days=int(row["Cyc_Cum"]))
                         )
-                        # MODIF GEN-3 : deux lignes ajoutées.
-                        # Sans elles la durée propre de la tête reste à 0 dans
-                        # le CSV, et le graphique — qui ne lit que
-                        # "Délais non analysé (mois)" — comprime toute la
-                        # cascade d'autant.
+                        # La tête porte sa durée propre. Sans ces deux lignes
+                        # elle reste à 0 dans le CSV, et le graphique — qui ne
+                        # lit que "Délais non analysé (mois)" — comprime toute
+                        # la cascade d'autant.
                         df_out_power_bi.at[index, "Délai non analysé"] = delai
                         df_out_power_bi.at[index, "Délais non analysé (mois)"] = delai / 20
                     else:
-                        # MODIF GEN-4
                         parent = trouver_parent(df_out_power_bi, index, row)
                         if parent is None:
                             parent = parent_racine(date_select)
@@ -454,7 +446,7 @@ def generate_data_power_bi(config):
                             test_appro_50=True,
                         )
                         df_out_power_bi.at[index, "Délai"] = delai
-                        # MODIF GEN-5 : délai de lien RG-040
+                        # délai de lien RG-040
                         df_out_power_bi.at[index, "Date début"] = (
                             parent["Date début"]
                             + datetime.timedelta(days=int(delai + delai_lien(row)))
@@ -500,21 +492,20 @@ def generate_data_power_bi(config):
                         analyse["Risque majorant (en mois)"] * 20
                     )
 
-                    # MODIF GEN-4
                     parent = trouver_parent(df_out_power_bi, index, row)
                     if parent is None:
                         parent = parent_racine(date_select)
 
                     df_out_power_bi.at[index, "Délai"] = (
                         df_out_power_bi.at[index, "ZPIF"]
-                        # MODIF GEN-1 : lisait "202" et "201", jamais renseignées
+
                         + df_out_power_bi.at[index, "ZO2"]
                         + df_out_power_bi.at[index, "ZO1"]
                         + df_out_power_bi.at[index, "Delta SAP"]
                         + df_out_power_bi.at[index, "Démontré"]
                         + df_out_power_bi.at[index, "Risques"]
                     )
-                    # MODIF GEN-5 : délai de lien RG-040
+                    # délai de lien RG-040
                     df_out_power_bi.at[index, "Date début"] = parent[
                         "Date début"
                     ] + datetime.timedelta(
@@ -522,7 +513,7 @@ def generate_data_power_bi(config):
                             df_out_power_bi.at[index, "Délai"] + delai_lien(row)
                         )
                     )
-                    # MODIF GEN-5 : délai de lien RG-040
+                    # délai de lien RG-040
                     df_out_power_bi.at[index, "date début TO"] = (
                         round(parent["date début TO"])
                         + round(parent["Délai"])
@@ -532,7 +523,7 @@ def generate_data_power_bi(config):
                         df_out_power_bi.at[index, "Délai"] / 20
                     )
 
-                    # MODIF GEN-5 : délai de lien RG-040
+                    # délai de lien RG-040
                     df_out_power_bi.at[index, "date début To (mois)"] = (
                         parent["Délais analysé (mois)"]
                         if parent["Analysé"] == "OUI"
