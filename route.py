@@ -6,14 +6,12 @@ import plotly
 from flask import jsonify, redirect, request, url_for
 from flask_login import login_required
 
-# MODIF GRAPH-22 : le calcul de la figure est parti dans cascade_cyclee.py, que
-# les deux routes partagent. Elles portaient chacune leur copie : 333 lignes
-# utiles identiques, et trois des correctifs de ce chantier n'etaient que la
-# reparation de leur divergence.
+# Le calcul de la figure vit dans cascade_cyclee.py, que les deux routes
+# partagent.
 #
-# Les constantes sont reexportees ici parce que du code appelant les lit
-# encore sous ce nom -- verifier_hovertemplate.py et les tests. Elles n'ont
-# qu'une seule definition, celle de cascade_cyclee.
+# Les constantes sont réexportées ici parce que du code appelant les lit sous
+# ce nom — verifier_hovertemplate.py et les tests. Elles n'ont qu'une seule
+# définition, celle de cascade_cyclee.
 from cascade_cyclee import (  # noqa: F401
     BLOC_REDUCTIBLE,
     DICO_COLOR,
@@ -83,7 +81,6 @@ def update_info_cascade_index():
 # Route intermédiaire qui sert à rendre dynamique le clic de la légende en
 # retraçant le graphique.
 @main.route("/update_graph", methods=["POST"])
-# MODIF GRAPH-9 : décorateurs inversés, @roles_required précédait @login_required
 @login_required
 @roles_required("Admin", "Writer", "Reader")
 def update_graph():
@@ -91,10 +88,8 @@ def update_graph():
     req = request.get_json()
     server_data = req["server_data"]
 
-    # MODIF GRAPH-22 : tout le corps de cette route est parti dans
-    # cascade_cyclee.tracer_cascade. Ce qui distinguait update_graph de
-    # create_graph_analyse_CCC2 tient dans ce seul dictionnaire : l'état de
-    # chaque trace au moment du clic.
+    # Ce qui distingue update_graph de create_graph_analyse_CCC2 tient dans ce
+    # seul dictionnaire : l'état de chaque trace au moment du clic.
     #
     # `clickedTraceName` est reçu et n'a jamais servi : `traceStatut` porte
     # déjà l'état de TOUTES les traces, celle qu'on vient de cliquer comprise.
