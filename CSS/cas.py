@@ -1,20 +1,14 @@
 # -*- coding: utf-8 -*-
 """Construction de la figure « cascade cyclée », partagée par les deux routes.
 
-MODIF GRAPH-22 : module créé. `create_graph_analyse_CCC2` et `update_graph`
-portaient chacune leur copie de ce calcul — 333 lignes utiles identiques sur
-365 et 393. Trois des correctifs de ce chantier (GRAPH-3, GRAPH-4, GRAPH-5)
-n'etaient rien d'autre que la réparation de ces deux copies qui avaient
-divergé : le graphique changeait au premier clic de légende.
-
-Les deux routes appellent maintenant `tracer_cascade` et ne gardent que la
-lecture de leur requête. Ce qui les distingue tient dans un seul paramètre,
+`create_graph_analyse_CCC2` trace le graphique, `update_graph` le retrace après
+un clic de légende. Les deux appellent `tracer_cascade` et ne gardent que la
+lecture de leur requête : ce qui les distingue tient dans un seul paramètre,
 `masques`.
 
-Aucune règle métier n'a changé en passant ici : les figures produites avant et
-après l'extraction sont identiques valeur par valeur, sur quatre jeux de
-données, au premier tracé comme après un clic de légende. La seule exception
-est signalée dans `tracer_cascade`.
+Un seul exemplaire du calcul, donc. C'est délibéré — tant qu'elles en portaient
+chacune une copie, les deux versions dérivaient l'une de l'autre et le
+graphique changeait au premier clic de légende.
 """
 
 from bisect import bisect_left
@@ -24,16 +18,12 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
-# MODIF GRAPH-5 : bloc ajouté. Les deux listes vivaient auparavant dans chaque
-# route sous les noms liste_col_interet_analyse et dico_color, avec un ordre
-# d'empilement et une couleur qui divergeaient entre les deux.
-#
-# Postes empilés dans la barre, dans l'ordre d'empilement.
+# Les postes empilés dans la barre, dans leur ordre d'empilement.
 #
 # Cette liste sert à la fois au tracé et au calcul du Délai total : tout ce qui
-# est dessiné est compté, et réciproquement. Les deux routes la partagent —
-# c'est leur divergence qui faisait changer l'ordre des segments et les totaux
-# au premier clic de légende.
+# est dessiné est compté, et réciproquement. Un poste absent d'ici n'est ni
+# tracé ni additionné, et le survol annonce alors un total que la barre ne fait
+# pas.
 #
 # "date début t0 (mois)" y figure comme poste dessiné ; calculer_delai_total_et_t0
 # l'écarte de la somme puisqu'elle le recalcule depuis le parent.
@@ -41,36 +31,22 @@ LISTE_COL_INTERET_ANALYSE = [
     "date début t0 (mois)",
     "Tmps recep (mois)",
     "Délai sécu (mois)",
-    # MODIF GRAPH-13 : "Marge appro (mois)" retirée d'ici. Elle vaut
-    # -MargeAppr/20 : une marge positive donnait un segment négatif, que Plotly
-    # n'empile pas et qu'ajuster_pour_affichage faisait absorber par le cycle de
-    # l'article. La marge est une position dans le temps, pas une quantité de
-    # travail : elle est passée dans le décalage t0, cf. MODIF GRAPH-13b.
-    # La colonne reste calculée et reste dans le survol, seul son tracé part.
+    # « Marge appro (mois) » n'est délibérément pas ici : la marge est une
+    # position dans le temps, pas une quantité de travail. Elle décale le t0
+    # (cf. calculer_delai_total_et_t0). La colonne reste calculée et reste dans
+    # le survol, elle n'est simplement pas dessinée.
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
     "Appros Longs LLI (mois)",
-    # MODIF GRAPH-15 : "Cycle SAP (mois)" remontée avant "Somme des retards
-    # démontrés (mois)". Ordre d'empilement seulement — la somme, les groupes
-    # d'absorption et le Délai total sont inchangés.
     "Cycle SAP (mois)",
     "Somme des retards démontrés (mois)",
     "Délais SAP non Analysé (mois)",
     "Risque majorant (mois)",
 ]
 
-# MODIF GRAPH-10 : le poste tracé « Cycle SAP » vaut en réalité
-# `Cycle SAP - ZPIF - ZO1 - ZO2`. Négatif, il signifie que ces trois postes
-# dépassent le cycle SAP réel : ce sont eux qui absorbent le dépassement à
-# l'écran, cf. ajuster_pour_affichage.
-# MODIF GRAPH-13 : GROUPE_LIEN supprimée. Elle listait les deux postes qui
-# absorbaient une marge négative ; la marge n'étant plus tracée, elle n'avait
-# plus d'usage.
-
-# MODIF GRAPH-16 : bloc ajouté. Sur un article ANALYSÉ, une marge appro qui
-# raccourcit ne se soustrait pas du Délai total entier : elle consomme d'abord
-# le décalage t0, puis ces postes-ci, dans cet ordre — l'ordre d'empilement de
-# la barre. Ce qu'elle n'a pas pu prendre est perdu.
+# Sur un article ANALYSÉ, une marge appro qui raccourcit ne se soustrait pas du
+# Délai total entier : elle consomme d'abord le décalage t0, puis ces postes-ci,
+# dans cet ordre — celui de l'empilement de la barre. Ce qu'elle n'a pas pu prendre est perdu.
 #
 # Ce qui n'est PAS ici est protégé et n'est jamais rogné : Cycle SAP, Somme des
 # retards démontrés, Risque majorant. Un retard démontré ne se comprime pas
@@ -84,14 +60,11 @@ BLOC_REDUCTIBLE = [
     "Cycle Industriel (mois)",
     "Autres, Appros ou Semi-Finis (mois)",
     "Appros Longs LLI (mois)",
-    # MODIF GRAPH-18 : "Cycle SAP (mois)" ajoutée au bloc réductible. Le bloc
-    # protégé se réduit donc à deux postes : Somme des retards démontrés et
-    # Risque majorant.
     "Cycle SAP (mois)",
 ]
 
-# MODIF GRAPH-19 : bloc ajouté. Les deux seuls postes qu'une marge ne peut pas
-# ronger — et, surtout, ceux que le t0 d'un enfant ne prend PAS en compte.
+# Les deux seuls postes qu'une marge ne peut pas ronger — et, surtout, ceux que
+# le t0 d'un enfant ne prend PAS en compte.
 #
 # Un enfant n'est pas attendu au tout début de la barre de son parent, mais au
 # début du TRAVAIL de son parent. Les retards démontrés et le risque majorant
@@ -120,8 +93,6 @@ DICO_COLOR = {
     "date début t0 (mois)": "#C8DCE7",
     "Tmps recep (mois)": "#E4DD5D",
     "Délai sécu (mois)": "#CFC841",
-    # MODIF GRAPH-13 : "Marge appro (mois)": "#B5A83A" retirée, le poste
-    # n'est plus tracé.
     "Délais SAP non Analysé (mois)": "#7142C6",
     "Cycle Industriel (mois)": "#073B4C",
     "Autres, Appros ou Semi-Finis (mois)": "#118AB2",
@@ -130,6 +101,7 @@ DICO_COLOR = {
     "Cycle SAP (mois)": "#F78C6B",
     "Risque majorant (mois)": "#FFD166",
 }
+
 
 def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
                    b_ordonner, masques=None):
@@ -143,19 +115,15 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
     `masques`             {nom du poste: "legendonly"} pour un retraçage après
                           clic de légende ; vide ou None au premier tracé.
 
-    Le survol est celui de `create_graph_analyse_CCC2`, qui portait une ligne
-    de plus que `update_graph` : « Date de dernière mise à jour ». C'est le
-    seul écart de comportement de l'extraction, et il va dans le bon sens —
-    l'infobulle ne change plus de contenu quand on clique dans la légende.
+    Le survol est le même au premier tracé et au retraçage : l'infobulle ne
+    change pas de contenu quand on clique dans la légende.
     """
     masques = masques or {}
-
-
 
     # Filtrage du DF sur la designation article sélectionnée
     df_power_bi = df_power_bi[
         df_power_bi["désignation article de tête"] == designation_article
-    ].copy()  # MODIF GRAPH-8 : .copy() ajouté, les affectations portaient sur une vue
+    ].copy()  # .copy() : sans lui les affectations porteraient sur une vue
 
     df_power_bi["Tmps recep (mois)"] = df_power_bi["Tps_Recep"].apply(
         lambda x: round(x / 20, 2)
@@ -163,17 +131,14 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
     df_power_bi["Délai sécu (mois)"] = df_power_bi["Délai_Sécu"].apply(
         lambda x: round(x / 20, 1)
     )
-    # MODIF GRAPH-3 : la colonne "Delta SAP (mois) raw" est supprimée et
-    # l'écrêtage `0 if x < 0 else ...` est retiré. update_graph n'écrêtait pas :
-    # le premier clic de légende changeait tous les totaux.
-    #
     # Delta SAP entre dans le Délai total à sa valeur réelle, négatifs compris.
-    # L'écrêtage n'a lieu que pour le tracé, via df_analyse_positive : une barre
-    # empilée ne sait pas dessiner un segment négatif.
+    # Surtout pas d'écrêtage ici : il n'a lieu que pour le tracé, via
+    # df_analyse_positive, parce qu'une barre empilée ne sait pas dessiner un
+    # segment négatif. Écrêter dès le calcul fausserait le total.
     df_power_bi["Delta SAP (mois)"] = df_power_bi["Delta SAP"].apply(
         lambda x: round(x / 20, 1)
     )
-    # MODIF GRAPH-12 : RG-040. Le délai du lien vaut
+    # RG-040 : le délai du lien vaut
     # Délai_Sécu + Tps_Recep - MargeAppr, et zéro dès que Cyc_Cum = 0.
     #
     # Le signe est inversé sur la marge pour qu'elle s'empile dans le même sens
@@ -182,10 +147,10 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
     if "MargeAppr" in df_power_bi.columns:
         _marge = pd.to_numeric(df_power_bi["MargeAppr"], errors="coerce").fillna(0)
     else:
-        # CSV antérieur à MODIF GEN-5 : la colonne n'y est pas encore. On
-        # dégrade en marge nulle plutôt que de faire tomber la route, ce qui
-        # revient au comportement d'avant RG-040. Régénérer le CSV rétablit le
-        # terme ; verification.py signale la colonne manquante en section 1.
+        # CSV trop ancien pour porter la colonne. On dégrade en marge nulle
+        # plutôt que de faire tomber la route — soit le comportement d'avant
+        # RG-040. Régénérer le CSV rétablit le terme ; verification.py signale
+        # la colonne manquante en section 1.
         _marge = pd.Series(0.0, index=df_power_bi.index)
 
     df_power_bi["Marge appro (mois)"] = _marge.apply(lambda x: round(-x / 20, 2))
@@ -196,10 +161,10 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
     df_power_bi["Cycle Industriel Optimal (mois)"] = df_power_bi["ZPIF"].apply(
         lambda x: round(x / 20, 1)
     )
-    df_power_bi["Complément au cycle industriel (mois)"] = df_power_bi["ZO2"].apply(  # MODIF GRAPH-1 : lisait "202"
+    df_power_bi["Complément au cycle industriel (mois)"] = df_power_bi["ZO2"].apply(
         lambda x: round(x / 20, 1)
     )
-    df_power_bi["Appros Longs (mois)"] = df_power_bi["ZO1"].apply(  # MODIF GRAPH-1 : lisait "201"
+    df_power_bi["Appros Longs (mois)"] = df_power_bi["ZO1"].apply(
         lambda x: round(x / 20, 1)
     )
     df_power_bi["Somme des retards démontrés (mois)"] = df_power_bi["Démontré"].apply(
@@ -221,8 +186,7 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
             "Complément au cycle industriel (mois)": "Autres, Appros ou Semi-Finis (mois)"
         }
     )
-    # MODIF GRAPH-2 : renommage ajouté. Il manquait ici alors que les deux
-    # listes de tracé utilisent le nom court : la route levait une KeyError.
+    # Nom court attendu par la liste des postes tracés.
     df_power_bi = df_power_bi.rename(
         columns={"Cycle Industriel Optimal (mois)": "Cycle Industriel (mois)"}
     )
@@ -244,12 +208,11 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
                     "Mots Clefs Complément au cycle industriel",
                     "Mots Clefs Cycle Industriel Optimal",
                 ]
-            # MODIF GRAPH-11 : une même Référence Article peut apparaître
-            # plusieurs fois dans les fiches — generate_data_cycle ne
-            # déduplique que sur Designation_Article. Chaque doublon
-            # démultipliait la ligne au join : autant de barres en trop sur
-            # le graphique, et une cascade faussée puisque plusieurs barres
-            # portaient le même article.
+            # Une même Référence Article peut apparaître plusieurs fois dans
+            # les fiches — generate_data_cycle ne déduplique que sur
+            # Designation_Article. Sans ce drop_duplicates, chaque doublon
+            # démultiplie la ligne au join : autant de barres en trop, et une
+            # cascade faussée puisque plusieurs barres portent le même article.
             #
             # keep="first" pour rester aligné sur generateData.py, qui prend la
             # première fiche (.iloc[0]) pour calculer les six composantes : le
@@ -274,8 +237,6 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         identifier.astype("string")
     ).replace("0", "")
 
-    # MODIF GRAPH-5 : liste_col_interet_analyse et dico_color supprimées d'ici,
-    # remontées en LISTE_COL_INTERET_ANALYSE et DICO_COLOR au niveau module.
 
     # Définition de la liste en hover global (analysé et non analysé)
     liste_hover_template_analyse = [
@@ -301,9 +262,7 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         "Mots Clefs Complément au cycle industriel",
         "Mots Clefs Cycle Industriel Optimal",
         "Délais SAP non Analysé (mois)",
-        # MODIF GRAPH-9 : "Delta SAP (mois) raw" retirée d'ici, elle était
-        # devenue un doublon exact de "Cycle SAP (mois)" (cf. MODIF GRAPH-3).
-        "Marge appro (mois)",   # MODIF GRAPH-12, index 22
+        "Marge appro (mois)",
         # "Délai total (mois)" reste en DERNIÈRE position : plusieurs contrôles
         # le lisent par l'index -1 du customdata.
         "Délai total (mois)",
@@ -346,7 +305,7 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         if not isinstance(row["Mots clefs expliquant le delta"], float) and not pd.isna(
             row["Mots clefs expliquant le delta"]
         ):
-            hovertemplate += "<br><span style='color: #F78C6B;'>&#11044;</span> Cycle SAP vs retard démontré: %{customdata[8]}: %{customdata[17]}"  # MODIF GRAPH-9 : [23] -> [8]
+            hovertemplate += "<br><span style='color: #F78C6B;'>&#11044;</span> Cycle SAP vs retard démontré: %{customdata[8]}: %{customdata[17]}"
 
         if not isinstance(row["Mots Clefs Appros Longs"], float) and not pd.isna(
             row["Mots Clefs Appros Longs"]
@@ -365,7 +324,6 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
         hovertemplate += "<br><span style='color: #CFC841;'>&#11044;</span> Délai de sécurité: %{customdata[12]}"
         hovertemplate += "<br><span style='color: #E4DD5D;'>&#11044;</span> Temps de Réception: %{customdata[13]}"
-        # MODIF GRAPH-12
         hovertemplate += "<br><span style='color: #B5A83A;'>&#11044;</span> Marge appro: %{customdata[22]}"
         hovertemplate += "<br><span style='color: #98d2eb;'>&#11044;</span> Décalage de t0: %{customdata[14]}"
 
@@ -376,8 +334,8 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
         hovertemplate += "<br><span style='color: white;'>&#11044;</span> Délai total: %{customdata[23]}"
 
-        # MODIF GRAPH-10 : prévenir que les segments dessinés sont plus courts
-        # que les valeurs ci-dessus, sinon l'écart passe pour une erreur.
+        # Prévenir que les segments dessinés sont plus courts que les valeurs
+        # ci-dessus, sinon l'écart passe pour une erreur de calcul.
         if row["Cycle SAP (mois)"] < 0:
             hovertemplate += (
                 "<br><i>Cycle SAP négatif : les segments de cycle sont réduits "
@@ -390,10 +348,6 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
     df_analyse["hovertemplate"] = hovertemplates
 
-    # MODIF GRAPH-6 : la liste `colonnes` qui précédait ici est supprimée, elle
-    # faisait doublon avec LISTE_COL_INTERET_ANALYSE à l'ordre près.
-    # MODIF GRAPH-4 : corps de la fonction entièrement remplacé ; la fonction
-    # elle-même reste imbriquée dans la route. Voir MODIFICATIONS.md.
     def calculer_delai_total_et_t0(df, colonnes):
         """Délai total et décalage t0 de chaque article de la désignation.
 
@@ -416,11 +370,10 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         df = df.copy()
 
         postes = [c for c in colonnes if c != "date début t0 (mois)"]
-        # MODIF GRAPH-16 : la ligne
-        #     duree_propre = df[postes].fillna(0).sum(axis=1).to_numpy(...)
-        # est supprimée. La durée propre est maintenant coupée en deux —
-        # `duree_autres` et les postes réductibles — puisque la marge peut
-        # rogner les seconds. Voir plus bas.
+
+        # La durée propre est coupée en deux — `duree_autres` d'un côté, les
+        # postes réductibles de l'autre — parce que la marge peut rogner les
+        # seconds. Voir plus bas.
 
         # Position de la ligne parente de chaque ligne, -1 pour une racine
         positions = {}
@@ -461,29 +414,23 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
                 profondeur[ligne] = niveau
                 niveau += 1
 
-        # MODIF GRAPH-13 : bloc ajouté. La marge appro n'est plus un poste
-        # empilé, c'est un décalage du t0. Le poste vaut -MargeAppr/20, donc une
-        # marge positive rapproche l'enfant de la livraison : il démarre pendant
-        # le cycle de son parent, ce qu'attend le métier sur un F/30.
-        #
-        # Le Délai total est inchangé au centime près — c'est le même terme, il
-        # change seulement de place dans l'addition — mais la barre dessinée
-        # redevient égale à ce total, ce qui n'était plus le cas dès qu'une
-        # marge positive dépassait Sécu + Recep.
+        # La marge appro n'est pas un poste empilé, c'est un décalage du t0.
+        # Le poste vaut -MargeAppr/20, donc une marge positive rapproche
+        # l'enfant de la livraison : il démarre pendant le cycle de son parent,
+        # ce qu'attend le métier sur un F/30.
         #
         # Une racine garde t0 = 0 et sa marge n'est pas comptée : RG-040 est un
-        # délai de lien, un article de tête n'a pas de parent donc pas de lien.
+        # délai de lien, et un article de tête n'a pas de parent donc pas de
+        # lien.
         decalage = df["Marge appro (mois)"].fillna(0).to_numpy(dtype=float)
 
-        # MODIF GRAPH-16 : bloc ajouté. Les postes que la marge peut rogner sur
-        # un analysé, et le masque des lignes concernées. La colonne « Analysé »
-        # vient du CSV et traverse la jointure ; si elle manque, on dégrade en
-        # « aucun analysé », c'est-à-dire le comportement d'avant GRAPH-16.
-        # MODIF GRAPH-19 : les postes que le t0 d'un enfant ne prend pas en
-        # compte sur son parent.
+        # Les postes du parent que le t0 d'un enfant ne prend pas en compte.
         protege = df[[c for c in colonnes if c in GROUPE_PROTEGE]].fillna(0) \
             .sum(axis=1).to_numpy(dtype=float)
 
+        # Les postes que la marge peut rogner sur un analysé, et le masque des
+        # lignes concernées. La colonne « Analysé » vient du CSV et traverse la
+        # jointure ; si elle manque, aucune ligne n'est traitée en analysé.
         reductibles = [c for c in colonnes if c in BLOC_REDUCTIBLE]
         valeurs = df[reductibles].fillna(0).to_numpy(dtype=float).copy()
         autres = [c for c in postes if c not in reductibles]
@@ -494,7 +441,7 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         else:
             est_analyse = np.zeros(len(df), dtype=bool)
 
-        # MODIF GRAPH-23 : ce qui est planifié, et ce qui ne l'est pas.
+        # Ce qui est planifié, et ce qui ne l'est pas.
         #
         # RG-038 le dit déjà : Type_appro "E" prend Cyc_Fab., un cycle de
         # FABRICATION ; "F" prend Delai_appr, un délai d'APPROVISIONNEMENT.
@@ -537,8 +484,8 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         valeurs[~planifie, :] = 0.0
         duree_autres[~planifie] = 0.0
 
-        # MODIF GRAPH-24 : la colonne « fourni. » — le point final fait partie
-        # du nom. Sur un enfant DIRECT d'un F/30, la valeur "L" veut dire que
+        # La colonne « fourni. » — le point final fait partie du nom. Sur un
+        # enfant DIRECT d'un F/30, la valeur "L" veut dire que
         # l'article est fourni : son délai est absolu, il ne dépend ni de son
         # parent ni d'un lien.
         #
@@ -577,24 +524,24 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
         for ligne in np.argsort(profondeur, kind="stable"):
             parent = parent_pos[ligne]
-            # MODIF GRAPH-13 : « + decalage[ligne] » ajouté, la ligne valait
-            # t0[ligne] = 0.0 if parent == -1 else total[parent]
-            # MODIF GRAPH-16 : le cas de l'analysé à marge raccourcissante est
-            # sorti de cette ligne, qui reste telle quelle pour tous les autres.
-            # MODIF GRAPH-19 : « - protege[parent] » ajouté. Un enfant est
-            # attendu au début du TRAVAIL de son parent, pas au tout début de sa
-            # barre : les retards démontrés et le risque majorant du parent ne
-            # comptent pas. Sur un parent non analysé ils valent zéro et la
-            # ligne se comporte comme avant.
-            # MODIF GRAPH-24 : un article fourni ne prend ni point de départ
-            # ni marge. Sa barre démarre à zéro.
+            # Le point de départ d'un enfant, en trois termes.
+            #
+            # `total[parent]`    le bout de la barre du parent ;
+            # `- protege[...]`   moins son rembourrage — l'enfant est attendu
+            #                    au début du TRAVAIL de son parent, pas au tout
+            #                    début de sa barre. Sur un parent non analysé
+            #                    ces postes valent zéro et le terme s'annule ;
+            # `+ decalage[...]`  la marge appro, qui rapproche ou éloigne.
+            #
+            # Une racine, et un article fourni, démarrent à zéro : ni point de
+            # départ, ni marge.
             base = (0.0 if parent == -1 or fourni_l[ligne]
                     else total[parent] - protege[parent] + decalage[ligne])
 
             if (parent != -1 and not fourni_l[ligne]
                     and est_analyse[ligne] and decalage[ligne] < 0):
-                # MODIF GRAPH-16 : la marge consomme le t0, puis les postes
-                # réductibles dans l'ordre, et s'arrête là. `base` ci-dessus a
+                # La marge consomme le t0, puis les postes réductibles dans
+                # l'ordre, et s'arrête là. `base` ci-dessus a
                 # déjà déduit la marge du t0 : s'il est négatif, c'est ce qui
                 # dépasse, et c'est ce qui reste à prendre sur les postes.
                 t0[ligne] = max(base, 0.0)
@@ -613,35 +560,30 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
             total[ligne] = (duree_autres[ligne] + valeurs[ligne].sum()
                             + t0[ligne])
 
-        # MODIF GRAPH-16 : les postes rognés sont réécrits, sinon la barre
-        # dessinée ne vaudrait plus Délai total - t0.
+        # Les postes rognés sont réécrits : sans ça la barre dessinée ne
+        # vaudrait plus Délai total - t0.
         for k, colonne in enumerate(reductibles):
             df[colonne] = np.round(valeurs[:, k], 2)
 
-        # MODIF GRAPH-23 : et les postes des articles non planifiés sont mis à
-        # zéro, tous, pas seulement les réductibles.
+        # Les postes des articles non planifiés tombent à zéro, tous, pas
+        # seulement les réductibles.
         if (~planifie).any():
             df.loc[~planifie, postes] = 0.0
 
-        # MODIF GRAPH-24 : les articles fournis n'ont qu'un poste, et c'est
-        # celui-là.
+        # Les articles fournis n'ont qu'un poste, et c'est celui-là.
         if fourni_l.any():
             df.loc[fourni_l, postes] = 0.0
             df.loc[fourni_l, "Délais SAP non Analysé (mois)"] = _appr[fourni_l]
 
-        # MODIF GRAPH-25 : ces articles sont retirés du graphique, pas
-        # seulement mis à zéro. Le marqueur est posé ici et la ligne est
-        # écartée APRÈS la cascade, pour que d'éventuels descendants gardent
-        # la position qu'ils auraient eue.
+        # Ce qui n'est pas planifié n'apparaît pas : articles fournis et
+        # articles sous un achat sont retirés du graphique, pas seulement mis à
+        # zéro.
         #
-        # MODIF GRAPH-26 : « | ~planifie » ajouté. Les articles sous un achat
-        # étaient dessinés avec une barre vide — étiquette et bande de t0
-        # visibles, aucun segment. Ils sont désormais retirés eux aussi. Les
-        # deux règles se comportent donc pareil : ce qui n'est pas planifié
-        # n'apparaît pas.
-        #
-        # Sans risque d'orphelin ici : la non-planification est récursive, donc
-        # les descendants d'une ligne retirée le sont aussi, et partent avec.
+        # Le marqueur est posé ici mais la ligne n'est écartée qu'APRÈS la
+        # cascade, pour que d'éventuels descendants gardent la position qu'ils
+        # auraient eue. Sans risque d'orphelin : la non-planification est
+        # récursive, donc les descendants d'une ligne retirée partent avec
+        # elle.
         df["_a_masquer"] = fourni_l | ~planifie
 
         df["date début t0 (mois)"] = np.round(t0, 2)
@@ -649,9 +591,9 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
         return df
 
-    # MODIF GRAPH-22 : crochet venu de update_graph. Un poste masqué à la
-    # légende est mis à zéro AVANT le recalcul, pour que la cascade tienne
-    # compte du masquage. `masques` est vide au premier tracé.
+    # Un poste masqué à la légende est mis à zéro AVANT le recalcul, pour que
+    # la cascade tienne compte du masquage. `masques` est vide au premier
+    # tracé.
     #
     # "date début t0 (mois)" fait exception : la masquer n'a aucun effet, elle
     # est de toute façon recalculée depuis le parent juste après.
@@ -659,23 +601,20 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
         if _etat == "legendonly" and _poste in LISTE_COL_INTERET_ANALYSE:
             df_analyse[_poste] = df_analyse[_poste] * 0
 
-    df_analyse = calculer_delai_total_et_t0(df_analyse, LISTE_COL_INTERET_ANALYSE)  # MODIF GRAPH-6 : passait `colonnes`
+    df_analyse = calculer_delai_total_et_t0(df_analyse, LISTE_COL_INTERET_ANALYSE)
 
-    # MODIF GRAPH-25 et GRAPH-26 : quittent le graphique — ni barre, ni
-    # étiquette d'axe, ni ligne de survol — les articles fournis (délai absolu,
-    # qui ne dit rien de la cascade) et tout ce qui n'est pas planifié (sous un
-    # achat, cf. GRAPH-23). Le retrait a lieu après le calcul, donc sans effet
-    # sur la position des autres.
+    # Le retrait effectif, après le calcul : ni barre, ni étiquette d'axe, ni
+    # ligne de survol pour les articles fournis et pour tout ce qui n'est pas
+    # planifié. La position des autres n'en est pas affectée.
     if "_a_masquer" in df_analyse.columns:
         df_analyse = df_analyse[~df_analyse["_a_masquer"].fillna(False)].copy()
         df_analyse = df_analyse.drop(columns="_a_masquer")
 
 
-    # MODIF GRAPH-10 : remplace l'écrêtage `clip(lower=0)` — lui-même remplaçant
-    # de `.applymap(lambda x: max(x, 0))`, supprimé de pandas 3. L'écrêtage
-    # laissait la barre plus longue que le Délai total dès qu'un segment était
-    # négatif : Plotly ignore un segment négatif dans une barre empilée, donc la
-    # longueur manquait à l'appel sans que rien ne le signale.
+    # Surtout pas un simple `clip(lower=0)` ici : écrêter laisse la barre plus
+    # longue que le Délai total dès qu'un segment est négatif, puisque Plotly
+    # ignore un segment négatif dans une barre empilée. La longueur manque à
+    # l'appel sans que rien ne le signale.
     def ajuster_pour_affichage(df, colonnes):
         """Version du DataFrame destinée au tracé, sans segment négatif.
 
@@ -719,12 +658,6 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
                 # la barre resterait trop longue de ce montant.
                 postes[ligne, i_sap] = -(deficit - absorbe)
 
-        # MODIF GRAPH-13 : l'étape « 2. Marge appro négative », qui répartissait
-        # le segment de marge sur Tmps recep et Délai sécu, est supprimée. La
-        # marge n'est plus un poste tracé (MODIF GRAPH-13a) : elle n'apparaît
-        # plus dans `colonnes`, donc dans `rang`, et le bloc ne s'exécutait plus.
-        # Supprimé plutôt que laissé : du code mort qui a l'air vivant.
-
         # 3. Filet de sécurité : tout négatif restant, au prorata du reste.
         #    Quand le lien est négatif au point de dépasser la durée de la
         #    tâche — une marge appro très supérieure à Sécu + Recep — la
@@ -752,12 +685,12 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
 
     fig = go.Figure()
 
-    for col in LISTE_COL_INTERET_ANALYSE:  # MODIF GRAPH-5 : liste locale
+    for col in LISTE_COL_INTERET_ANALYSE:
 
         fig.add_trace(
             go.Bar(
-                # MODIF GRAPH-22 : crochet venu de update_graph. None laisse la
-                # trace visible, "legendonly" la garde masquée au retraçage.
+                # None laisse la trace visible, "legendonly" la garde masquée
+                # au retraçage.
                 visible=masques.get(col),
                 x=df_analyse_positive[col],
                 y=df_analyse_positive[attributRef],
@@ -768,7 +701,7 @@ def tracer_cascade(df_power_bi, df_cycle_detail, designation_article,
                 orientation="h",
                 customdata=df_analyse[liste_hover_template_analyse].fillna("").values,
                 hovertemplate=df_analyse["hovertemplate"],
-                marker_color=DICO_COLOR[col],  # MODIF GRAPH-5 : dico local
+                marker_color=DICO_COLOR[col],
                 name=col,
             )
         )
