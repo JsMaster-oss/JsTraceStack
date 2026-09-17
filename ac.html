@@ -1,0 +1,855 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+  .comparison-layout {
+    max-height: 60vh;
+    height: 60vh;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="disposition-gest-tableau">
+
+  <div>
+    <span id="derniere-modif-famille" style="display:none; font-size:0.8em; color:#666;"></span>
+
+    <div class="trie-f-c">
+      <span class="field-title">Famille :</span>
+
+      <div class="dropdown">
+        <div id="select-famille" class="select" aria-expanded="false" aria-controls="panel-famille">
+          <span id="filter-select" class="selected">{{ familles[0] }}</span>
+          <i class="bi bi-caret-down-fill caret"></i>
+        </div>
+
+        <ul id="panel-famille" class="field-list">
+          {% for f in familles %}
+            {% if loop.index == 1 %}
+              <li id="active-famille" class="active">{{ f }}</li>
+            {% else %}
+              <li>{{ f }}</li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="right-container">
+    <div id="d-filter" class="open-filter">
+      Filtre
+    </div>
+
+    <button class="export" id="export" type="button" onclick="tableToExcel()">Export XLSX</button>
+
+    <a class="export" id="export-echeance"
+       aria-label="Exporter le tableau"
+       title="Exporter le tableau">
+      Export XLSX échéance
+    </a>
+
+    <div class="trie-v-c trie-v-current">
+      <span class="field-title">Référence :</span>
+
+      <div class="dropdown">
+        <div id="select-version-current" class="select" aria-expanded="false" aria-controls="panel-version-current">
+          <span id="filter-select-version-current" class="selected-version">{{ versions[0].label }}</span>
+          <i class="bi bi-caret-down-fill caret"></i>
+        </div>
+
+        <ul id="panel-version-current" class="field-list">
+          {% for v in versions %}
+            <li data-etat="{{ v.etat }}"{% if loop.first %} id="active-version-current" class="active"{% endif %}>{{ v.label }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="trie-v-c trie-v-compare">
+      <span class="field-title">Comparaison :</span>
+
+      <div class="dropdown">
+        <div id="select-version" class="select" aria-expanded="false" aria-controls="panel-version">
+          <span id="filter-select-version" class="selected-version">{{ versions[0].label }}</span>
+          <i class="bi bi-caret-down-fill caret"></i>
+        </div>
+
+        <ul id="panel-version" class="field-list">
+          {% for v in versions %}
+            <li data-etat="{{ v.etat }}"{% if loop.first %} id="active-version" class="active"{% endif %}>{{ v.label }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="comparison-layout">
+  <!-- Colonnes sticky (partagées) -->
+  <div class="sticky-columns-wrapper">
+    <table class="tableau sticky-table" id="table-sticky">
+      <thead id="thead-sticky">
+      </thead>
+      <tbody id="tbody-sticky">
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Tables d'échéances avec scroll synchronisé -->
+  <div class="scrollable-tables-wrapper">
+    <!-- Table VX -->
+    <div class="table-container vx-container" id="vx-scroll-container">
+      <table class="tableau vx-table" id="table-vx">
+        <thead id="thead-vx">
+        </thead>
+        <tbody id="tbody-vx">
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table Version Comparée -->
+    <div class="table-container compare-container" id="compare-scroll-container" style="display: none;">
+      <table class="tableau compare-table" id="table-compare">
+        <thead id="thead-compare">
+        </thead>
+        <tbody id="tbody-compare">
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="pos-filter">
+  <div id="close-filter" class="close-filter">
+    <i id="icon-close" class="bi bi-x-lg"></i>
+  </div>
+
+  <div id="p-filter" class="p-filter" data-filter="close">
+    <h2 class="f-title">Filtrage</h2>
+
+    <div class="filter-content">
+
+      <div class="f-box">
+        <div id="box-filter-2" class="f-box-title">
+          Contrats
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+
+        <div id="contrat-filter" class="f-box-content">
+          <div class="f-line f-line-checkbox">
+            <label for="onGoingContract">
+              <input id="onGoingContract" class="checkFilterField"
+                     type="checkbox" name="onGoingContract" value="on" />
+              <div>Contrats en cours</div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div id="box-filter-1" class="f-box-title">
+          Période
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+
+        <div id="te-filter" class="f-box-content">
+          <div class="f-line f-line-date">
+            <label for="dateTStart">Début :</label>
+            <input id="dateTStart" class="checkFilterField" type="date" name="dateTStart">
+          </div>
+
+          <div class="f-line f-line-date">
+            <label for="dateTEnd">Fin :</label>
+            <input id="dateTEnd" class="checkFilterField" type="date" name="dateTEnd">
+          </div>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div id="box-filter-3" class="f-box-title">
+          Activité
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <ul id="activite-filter"></ul>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div class="f-box-title">
+          Scénario
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <ul id="scenario-filter"></ul>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div class="f-box-title">
+          Entité
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <ul id="entite-filter"></ul>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div id="box-filter-4" class="f-box-title">
+          Produits
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <div class="f-search-wrap">
+            <input type="text" class="f-search-input" data-filter-search="produit" placeholder="Rechercher…" autocomplete="off">
+            <button type="button" class="f-search-clear" data-filter-clear="produit" style="display:none;">✕</button>
+          </div>
+          <ul id="produit-filter"></ul>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div id="box-filter-5" class="f-box-title">
+          Pays
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <div class="f-search-wrap">
+            <input type="text" class="f-search-input" data-filter-search="pays" placeholder="Rechercher…" autocomplete="off">
+            <button type="button" class="f-search-clear" data-filter-clear="pays" style="display:none;">✕</button>
+          </div>
+          <ul id="pays-filter"></ul>
+        </div>
+      </div>
+
+      <div class="f-box">
+        <div id="box-filter-6" class="f-box-title">
+          Part Number
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <div class="f-search-wrap">
+            <input type="text" class="f-search-input" data-filter-search="reference" placeholder="Rechercher un part number…" autocomplete="off">
+            <button type="button" class="f-search-clear" data-filter-clear="reference" style="display:none;">✕</button>
+          </div>
+          <ul id="reference-filter"></ul>
+        </div>
+      </div>
+
+      {% if bool_autorisation_css %}
+      <div class="f-box">
+        <div class="f-box-title">
+          Commentaire CSS
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        <div class="f-box-content">
+          <div class="f-search-wrap">
+            <input type="text" class="f-search-input" data-filter-search="commentaire_css" placeholder="Rechercher…" autocomplete="off">
+            <button type="button" class="f-search-clear" data-filter-clear="commentaire_css" style="display:none;">✕</button>
+          </div>
+          <ul id="commentaire_css-filter"></ul>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <div class="btn-box">
+      <button id="reset-filter" type="button" class="export">Réinitialiser</button>
+      <button id="apply-filter" type="button" class="export">Appliquer</button>
+    </div>
+
+  </div>
+</div>
+
+<div id="modal-afficher-info-ligne" class="modal fade" tabindex="-1" role="dialog"
+     aria-labelledby="myModalLabel" data-bs-backdrop="static">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+
+      <div class="modal-header pos-header-info">
+        <h5 class="modal-title">Information générale du produit</h5>
+        <button class="bclose" data-bs-dismiss="modal">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-content">
+
+          <div>
+            <div>
+              <h6>Contrat</h6>
+            </div>
+            <div>
+              <div>
+                <div><b>Libellé : </b><span id="libelle"></span></div>
+                <div><b>Numéro WONO : </b><span id="num_wono"></span></div>
+                <div><b>Pays : </b><span id="pays"></span></div>
+              </div>
+              <div>
+                <div><b>T0 : </b><span id="t0"></span></div>
+                <div><b>Prise de commande : </b><span id="prise_com"></span></div>
+                <div><b>Commentaire : </b><span id="commentaire_com"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="trait"></div>
+
+          <div>
+            <div>
+              <h6>Produit</h6>
+            </div>
+            <div>
+              <div>
+                <div><b>Activité : </b><span id="activite"></span></div>
+                <div><b>Produit : </b><span id="produit"></span></div>
+                <div><b>Numéro de référence : </b><span id="reference"></span></div>
+              </div>
+              <div>
+                <div><b>Scénario : </b><span id="scenario"></span></div>
+                <div><b>Commentaire : </b><span id="commentaire_prod"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="trait"></div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="row row-cols-auto align-items-center margin-div-tableau">
+  <div class="col annul-padding">
+    <label for="btn-group-vue-echeances">Vue : </label>
+    <div class="btn-group" role="group" id="btn-group-vue-echeances">
+      <input type="radio" class="btn-check" name="radio-vue-echeances"
+             id="btn-vue-mois" autocomplete="off">
+      <label class="btn surcharge-btn-outline-primary" for="btn-vue-mois">Mensuelle</label>
+
+      <input type="radio" class="btn-check" name="radio-vue-echeances"
+             id="btn-vue-trimestre" autocomplete="off" checked>
+      <label class="btn surcharge-btn-outline-primary" for="btn-vue-trimestre">Trimestrielle</label>
+
+      <input type="radio" class="btn-check" name="radio-vue-echeances"
+             id="btn-vue-annuelle" autocomplete="off">
+      <label class="btn surcharge-btn-outline-primary" for="btn-vue-annuelle">Annuelle</label>
+    </div>
+  </div>
+
+  <div class="col">
+    <label class="form-label" for="input-annees-affichees">Années affichées : </label>
+    <div class="form-outline d-inline-block" style="width: 5rem;">
+      <input min="1" max="{{ nombre_annees_max_a_afficher }}"
+             type="number" class="form-control round-borders"
+             id="input-annees-affichees">
+    </div>
+  </div>
+</div>
+
+<script>
+  // Mise à jour du lien d'export échéance avec la famille sélectionnée
+  document.getElementById("export-echeance").addEventListener("click", function () {
+    const famille_actuelle = document.getElementById("filter-select").textContent;
+    const exportUrl = "{{ url_for('main.export_xlsx') }}" + "?famille_actuelle=" + encodeURIComponent(famille_actuelle);
+    this.href = exportUrl;
+  });
+
+  // ========================================
+  // EXPORT EXCEL AVEC STYLES (ExcelJS) - Page Accueil
+  // ========================================
+  //
+  // Les fonctions utilitaires partagées (cssColorToARGB, extractCellStyle,
+  // extractHeaderRowCells) sont définies dans tableau_echeance.js.
+  //
+  // Cette section définit les fonctions spécifiques à la page Accueil :
+  //   - addSheetFromTables() : combine deux tables (sticky + scrollable) en une feuille Excel
+  //   - tableToExcel()       : point d'entrée de l'export, crée le classeur et les feuilles
+
+  /**
+   * Ajoute une feuille ExcelJS depuis les tables DOM (sticky + scrollable)
+   */
+  function addSheetFromTables(workbook, sheetName, theadSticky, tbodySticky, theadScroll, tbodyScroll) {
+    var ws = workbook.addWorksheet(sheetName);
+
+    var stickyHeadRows = theadSticky.querySelectorAll('tr');
+    var scrollHeadRows = theadScroll.querySelectorAll('tr');
+    var stickyBodyRows = tbodySticky.querySelectorAll('tr');
+    var scrollBodyRows = tbodyScroll.querySelectorAll('tr');
+
+    var maxHeadRows = Math.max(stickyHeadRows.length, scrollHeadRows.length);
+    var maxBodyRows = Math.max(stickyBodyRows.length, scrollBodyRows.length);
+
+    // === PHASE 1 : Collecter toutes les donnees des headers dans une matrice ===
+    var headerMatrix = []; // headerMatrix[row][col] = { value, style, colspan, rowspan }
+    var stickyRowspanTracker = {};
+    var scrollRowspanTracker = {};
+
+    for (var hi = 0; hi < maxHeadRows; hi++) {
+      var stickyCells = extractHeaderRowCells(stickyHeadRows[hi], stickyRowspanTracker);
+      var scrollCells = extractHeaderRowCells(scrollHeadRows[hi], scrollRowspanTracker);
+      headerMatrix.push(stickyCells.concat(scrollCells));
+    }
+
+    // === PHASE 2 : Determiner le nombre de colonnes et normaliser ===
+    var maxCols = 0;
+    headerMatrix.forEach(function(row) { if (row.length > maxCols) maxCols = row.length; });
+
+    // Remplir les lignes courtes avec des cellules vides
+    headerMatrix.forEach(function(row) {
+      while (row.length < maxCols) {
+        row.push({ value: '', style: {}, colspan: 1, rowspan: 1, coveredByRowspan: false });
+      }
+    });
+
+    // === PHASE 3 : Identifier les merges (horizontaux et verticaux) ===
+    var merges = [];
+    var merged = {}; // merged["row,col"] = true si deja dans un merge
+
+    for (var r = 0; r < headerMatrix.length; r++) {
+      for (var c = 0; c < headerMatrix[r].length; c++) {
+        var key = r + ',' + c;
+        if (merged[key]) continue;
+
+        var cell = headerMatrix[r][c]; 
+
+        // Merge horizontal (colspan > 1)
+        if (cell.colspan > 1) {
+          merges.push({ startRow: r + 1, startCol: c + 1, endRow: r + 1, endCol: c + cell.colspan });
+          for (var cc = c; cc < c + cell.colspan; cc++) {
+            merged[r + ',' + cc] = true;
+          }
+        }
+
+        // Merge vertical (rowspan > 1 depuis le DOM)
+        if (cell.rowspan > 1) {
+          var endRow = r + cell.rowspan;
+          var endCol = c + (cell.colspan > 1 ? cell.colspan : 1);
+          merges.push({ startRow: r + 1, startCol: c + 1, endRow: endRow, endCol: endCol });
+          for (var rr = r; rr < endRow; rr++) {
+            for (var cc = c; cc < endCol; cc++) {
+              merged[rr + ',' + cc] = true;
+            }
+          }
+        }
+
+        // Detecter les cellules vides sous une cellule avec contenu (fusion automatique)
+        if (cell.value !== '' && !cell.coveredByRowspan && cell.rowspan === 1 && cell.colspan <= 1) {
+          var extendRows = 0;
+          for (var rr = r + 1; rr < headerMatrix.length; rr++) {
+            var belowCell = headerMatrix[rr][c];
+            var belowKey = rr + ',' + c;
+            if (belowCell && belowCell.value === '' && !belowCell.coveredByRowspan && !merged[belowKey]) {
+              extendRows++;
+            } else {
+              break;
+            }
+          }
+          if (extendRows > 0) {
+            merges.push({ startRow: r + 1, startCol: c + 1, endRow: r + 1 + extendRows, endCol: c + 1 });
+            for (var rr = r; rr <= r + extendRows; rr++) {
+              merged[rr + ',' + c] = true;
+            }
+          }
+        }
+      }
+    }
+
+    // === PHASE 4 : Ecrire les headers dans Excel ===
+    for (var r = 0; r < headerMatrix.length; r++) {
+      var rowValues = headerMatrix[r].map(function(c) { return c.value; });
+      var excelRow = ws.addRow(rowValues);
+
+      for (var c = 0; c < headerMatrix[r].length; c++) {
+        var cell = excelRow.getCell(c + 1);
+        var st = headerMatrix[r][c].style;
+        if (st.fill) cell.fill = st.fill;
+        if (st.font) cell.font = st.font;
+        if (st.border) cell.border = st.border;
+        if (st.alignment) cell.alignment = st.alignment;
+      }
+    }
+
+    // === PHASE 5 : Appliquer les merges ===
+    merges.forEach(function(m) {
+      try {
+        ws.mergeCells(m.startRow, m.startCol, m.endRow, m.endCol);
+      } catch (e) {
+        // Ignorer les erreurs de merge (cellule deja mergee)
+      }
+    });
+
+    // === BODY ===
+    for (var bi = 0; bi < maxBodyRows; bi++) {
+      var stickyBR = stickyBodyRows[bi];
+      var scrollBR = scrollBodyRows[bi];
+
+      var rowValues = [];
+      var rowStyles = [];
+      var colSpans = [];
+
+      // Sticky body cells
+      if (stickyBR) {
+        var cells = stickyBR.querySelectorAll('td, th');
+        for (var c = 0; c < cells.length; c++) {
+          var span = parseInt(cells[c].getAttribute('colspan')) || 1;
+          var text = cells[c].textContent.trim();
+          var numVal = parseFloat(text);
+          rowValues.push(!isNaN(text) && text !== '' ? numVal : text);
+          rowStyles.push(extractCellStyle(cells[c]));
+          colSpans.push(span);
+          for (var s = 1; s < span; s++) {
+            rowValues.push('');
+            rowStyles.push(extractCellStyle(cells[c]));
+            colSpans.push(0);
+          }
+        }
+      }
+
+      // Scrollable body cells
+      if (scrollBR) {
+        var cells = scrollBR.querySelectorAll('td, th');
+        for (var c = 0; c < cells.length; c++) {
+          var text = cells[c].textContent.trim();
+          var numVal = parseFloat(text);
+          rowValues.push(!isNaN(text) && text !== '' ? numVal : text);
+          rowStyles.push(extractCellStyle(cells[c]));
+          colSpans.push(1);
+        }
+      }
+
+      var excelRow = ws.addRow(rowValues);
+      for (var ci = 0; ci < rowStyles.length; ci++) {
+        var cell = excelRow.getCell(ci + 1);
+        var st = rowStyles[ci];
+        if (st.fill) cell.fill = st.fill;
+        if (st.font) cell.font = st.font;
+        if (st.border) cell.border = st.border;
+        if (st.alignment) cell.alignment = st.alignment;
+      }
+
+      // Merges body
+      for (var ci = 0; ci < colSpans.length; ci++) {
+        if (colSpans[ci] > 1) {
+          var startCol = ci + 1;
+          var endCol = ci + colSpans[ci];
+          ws.mergeCells(excelRow.number, startCol, excelRow.number, endCol);
+        }
+      }
+    }
+
+    // Auto-ajuster les largeurs de colonnes
+    ws.columns.forEach(function(col) {
+      var maxLen = 10;
+      col.eachCell({ includeEmpty: true }, function(cell) {
+        var len = cell.value ? String(cell.value).length : 0;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = Math.min(maxLen + 2, 30);
+    });
+
+    return ws;
+  }
+
+  /**
+   * Ajoute une feuille depuis trois tables DOM : sticky + vx + compare (côte à côte).
+   * Même logique que addSheetFromTables mais concatène un troisième tableau scrollable.
+   */
+  function addSheetFromThreeTables(workbook, sheetName, theadS, tbodyS, theadVX, tbodyVX, theadC, tbodyC) {
+    var ws = workbook.addWorksheet(sheetName);
+
+    var sHR = theadS.querySelectorAll('tr');
+    var vHR = theadVX.querySelectorAll('tr');
+    var cHR = theadC.querySelectorAll('tr');
+    var sBR = tbodyS.querySelectorAll('tr');
+    var vBR = tbodyVX.querySelectorAll('tr');
+    var cBR = tbodyC.querySelectorAll('tr');
+
+    var maxH = Math.max(sHR.length, vHR.length, cHR.length);
+    var maxB = Math.max(sBR.length, vBR.length, cBR.length);
+
+    var headerMatrix = [];
+    var rstS = {}, rstV = {}, rstC = {};
+    for (var hi = 0; hi < maxH; hi++) {
+      var sc = extractHeaderRowCells(sHR[hi], rstS);
+      var vc = extractHeaderRowCells(vHR[hi], rstV);
+      var cc = extractHeaderRowCells(cHR[hi], rstC);
+      headerMatrix.push(sc.concat(vc).concat(cc));
+    }
+
+    var maxCols = 0;
+    headerMatrix.forEach(function(row) { if (row.length > maxCols) maxCols = row.length; });
+    headerMatrix.forEach(function(row) {
+      while (row.length < maxCols) row.push({ value: '', style: {}, colspan: 1, rowspan: 1, coveredByRowspan: false });
+    });
+
+    var merges = [], merged = {};
+    for (var r = 0; r < headerMatrix.length; r++) {
+      for (var c = 0; c < headerMatrix[r].length; c++) {
+        var key = r + ',' + c;
+        if (merged[key]) continue;
+        var cell = headerMatrix[r][c];
+        if (cell.colspan > 1) {
+          merges.push({ startRow: r+1, startCol: c+1, endRow: r+1, endCol: c+cell.colspan });
+          for (var cc2 = c; cc2 < c + cell.colspan; cc2++) merged[r+','+cc2] = true;
+        }
+        if (cell.rowspan > 1) {
+          var eR = r + cell.rowspan, eC = c + (cell.colspan > 1 ? cell.colspan : 1);
+          merges.push({ startRow: r+1, startCol: c+1, endRow: eR, endCol: eC });
+          for (var rr = r; rr < eR; rr++) for (var cc3 = c; cc3 < eC; cc3++) merged[rr+','+cc3] = true;
+        }
+        if (cell.value !== '' && !cell.coveredByRowspan && cell.rowspan === 1 && cell.colspan <= 1) {
+          var ext = 0;
+          for (var rr2 = r+1; rr2 < headerMatrix.length; rr2++) {
+            var bk = rr2+','+c;
+            if (headerMatrix[rr2][c] && headerMatrix[rr2][c].value === '' && !headerMatrix[rr2][c].coveredByRowspan && !merged[bk]) ext++;
+            else break;
+          }
+          if (ext > 0) {
+            merges.push({ startRow: r+1, startCol: c+1, endRow: r+1+ext, endCol: c+1 });
+            for (var rr3 = r; rr3 <= r+ext; rr3++) merged[rr3+','+c] = true;
+          }
+        }
+      }
+    }
+
+    for (var r2 = 0; r2 < headerMatrix.length; r2++) {
+      var rowVals = headerMatrix[r2].map(function(hc) { return hc.value; });
+      var xlRow = ws.addRow(rowVals);
+      for (var c2 = 0; c2 < headerMatrix[r2].length; c2++) {
+        var xlCell = xlRow.getCell(c2+1);
+        var hst = headerMatrix[r2][c2].style;
+        if (hst.fill)      xlCell.fill      = hst.fill;
+        if (hst.font)      xlCell.font      = hst.font;
+        if (hst.border)    xlCell.border    = hst.border;
+        if (hst.alignment) xlCell.alignment = hst.alignment;
+      }
+    }
+    merges.forEach(function(m) { try { ws.mergeCells(m.startRow, m.startCol, m.endRow, m.endCol); } catch(e) {} });
+
+    var totalDataCols = maxCols;
+    for (var bi = 0; bi < maxB; bi++) {
+      var rowValues = [], rowStyles = [], colSpans = [];
+
+      function collectRow(btr) {
+        if (!btr) return;
+        var bcells = btr.querySelectorAll('td, th');
+        for (var bc = 0; bc < bcells.length; bc++) {
+          var bspan = parseInt(bcells[bc].getAttribute('colspan')) || 1;
+          var btext = bcells[bc].textContent.trim();
+          var bnum  = parseFloat(btext);
+          rowValues.push(!isNaN(btext) && btext !== '' ? bnum : btext);
+          rowStyles.push(extractCellStyle(bcells[bc]));
+          colSpans.push(bspan);
+          for (var bsp = 1; bsp < bspan; bsp++) {
+            rowValues.push('');
+            rowStyles.push(extractCellStyle(bcells[bc]));
+            colSpans.push(0);
+          }
+        }
+      }
+
+      collectRow(sBR[bi]);
+      collectRow(vBR[bi]);
+      collectRow(cBR[bi]);
+
+      if (rowValues.length > totalDataCols) totalDataCols = rowValues.length;
+      var bxlRow = ws.addRow(rowValues);
+      for (var ci2 = 0; ci2 < rowStyles.length; ci2++) {
+        var bxlCell = bxlRow.getCell(ci2+1);
+        var bst = rowStyles[ci2];
+        if (bst.fill)      bxlCell.fill      = bst.fill;
+        if (bst.font)      bxlCell.font      = bst.font;
+        if (bst.border)    bxlCell.border    = bst.border;
+        if (bst.alignment) bxlCell.alignment = bst.alignment;
+      }
+      for (var ci3 = 0; ci3 < colSpans.length; ci3++) {
+        if (colSpans[ci3] > 1) ws.mergeCells(bxlRow.number, ci3+1, bxlRow.number, ci3+colSpans[ci3]);
+      }
+    }
+
+    ws.columns.forEach(function(col) {
+      var maxLen = 0;
+      col.eachCell({ includeEmpty: false }, function(cell) {
+        var val = cell.value !== null && cell.value !== undefined ? String(cell.value) : '';
+        var len = (cell.font && cell.font.bold) ? Math.ceil(val.length * 1.15) : val.length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = Math.min(Math.max(4, maxLen + 2), 40);
+    });
+
+    var totalRows = headerMatrix.length + maxB;
+    var outerStyle = { style: 'medium', color: { argb: 'FF000000' } };
+    for (var row = 1; row <= totalRows; row++) {
+      for (var col = 1; col <= totalDataCols; col++) {
+        var isTop = row === 1, isBot = row === totalRows, isLft = col === 1, isRgt = col === totalDataCols;
+        if (!isTop && !isBot && !isLft && !isRgt) continue;
+        var xlc = ws.getCell(row, col);
+        var cur = xlc.border || { top: {style:'thin',color:{argb:'FFCCCCCC'}}, left: {style:'thin',color:{argb:'FFCCCCCC'}}, bottom: {style:'thin',color:{argb:'FFCCCCCC'}}, right: {style:'thin',color:{argb:'FFCCCCCC'}} };
+        xlc.border = { top: isTop ? outerStyle : cur.top, left: isLft ? outerStyle : cur.left, bottom: isBot ? outerStyle : cur.bottom, right: isRgt ? outerStyle : cur.right };
+      }
+    }
+    return ws;
+  }
+
+  function tableToExcelAllFamilies() {
+    var allFamilies = [];
+    $('#panel-famille li').each(function() {
+      var name = $(this).text().trim();
+      if (name) allFamilies.push(name);
+    });
+    if (allFamilies.length === 0) return;
+
+    var btn = document.getElementById('export-all-familles');
+    if (btn) { btn.disabled = true; btn.textContent = 'Export en cours...'; }
+
+    var workbook     = new ExcelJS.Workbook();
+    workbook.creator = 'RepliqueB';
+    var savedFamily  = currentFamily;
+    var savedIsCompare = isCompareMode;
+    var isSame       = (versionCurrent === versionCompared);
+    var sheetLabel   = isSame ? versionCurrent : (versionCurrent + ' vs ' + versionCompared);
+
+    function processNext(index) {
+      if (index >= allFamilies.length) {
+        currentFamily = savedFamily;
+        isCompareMode = savedIsCompare;
+        var savedData = dataByFamily[savedFamily] ? dataByFamily[savedFamily].data || [] : [];
+        rebuildTable($('#tbody-sticky'), $('#tbody-vx'), $('#tbody-compare'), savedData, false, true);
+
+        workbook.xlsx.writeBuffer().then(function(buffer) {
+          var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          saveAs(blob, 'toutes_familles_' + sheetLabel + '.xlsx');
+          if (btn) { btn.disabled = false; btn.textContent = 'Toutes familles XLSX'; }
+        });
+        return;
+      }
+
+      var famille = allFamilies[index];
+
+      // Charge d'abord la version courante
+      loadVersionData(famille, versionCurrent, currentUserRole, false, function() {
+        currentFamily = famille;
+
+        function buildSheet() {
+          var familyData = getCurrentVersionData();
+          isCompareMode = !isSame;
+
+          var hiddenDiv = $('<div style="position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;"></div>');
+          $('body').append(hiddenDiv);
+
+          var tS = $('<table class="tableau sticky-table"></table>');
+          var tbS = $('<tbody></tbody>');
+          tS.append(tbS);
+
+          var tV = $('<table class="tableau vx-table"></table>');
+          var tbV = $('<tbody></tbody>');
+          tV.append(tbV);
+
+          var tC = $('<table class="tableau compare-table"></table>');
+          var tbC = $('<tbody></tbody>');
+          tC.append(tbC);
+
+          hiddenDiv.append(tS).append(tV).append(tC);
+
+          try {
+            // rebuildTable() regenere deja les theads reels (y compris quand la
+            // famille n'a aucune donnee) : ils refletent la version/comparaison
+            // courante au moment ou on les capture pour la feuille.
+            rebuildTable(tbS, tbV, tbC, familyData, false, true);
+
+            if (isSame) {
+              addSheetFromTables(workbook, famille.substring(0, 31),
+                document.getElementById('thead-sticky'), tbS[0],
+                document.getElementById('thead-vx'),     tbV[0]);
+            } else {
+              addSheetFromThreeTables(workbook, famille.substring(0, 31),
+                document.getElementById('thead-sticky'),  tbS[0],
+                document.getElementById('thead-vx'),      tbV[0],
+                document.getElementById('thead-compare'), tbC[0]);
+            }
+          } finally {
+            hiddenDiv.remove();
+          }
+          processNext(index + 1);
+        }
+
+        if (!isSame) {
+          loadCompareData(famille, versionCurrent, versionCompared, buildSheet);
+        } else {
+          buildSheet();
+        }
+      });
+    }
+
+    processNext(0);
+  }
+
+  function tableToExcel() {
+    var activeFamille = document.getElementById('filter-select').textContent.trim();
+    var workbook      = new ExcelJS.Workbook();
+    workbook.creator  = 'RepliqueB';
+
+    var theadSticky  = document.getElementById('thead-sticky');
+    var tbodySticky  = document.getElementById('tbody-sticky');
+    var theadVX      = document.getElementById('thead-vx');
+    var tbodyVX      = document.getElementById('tbody-vx');
+
+    if (!theadSticky || !tbodySticky || !theadVX || !tbodyVX) {
+      console.error('Tables non trouvées pour l\'export');
+      return;
+    }
+
+    if (isCompareMode) {
+      var theadC = document.getElementById('thead-compare');
+      var tbodyC = document.getElementById('tbody-compare');
+      var sheetName = (versionCurrent + ' vs ' + versionCompared).substring(0, 31);
+      addSheetFromThreeTables(workbook, sheetName, theadSticky, tbodySticky, theadVX, tbodyVX, theadC, tbodyC);
+      workbook.xlsx.writeBuffer().then(function(buffer) {
+        var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, activeFamille + ' - ' + versionCurrent + ' vs ' + versionCompared + '.xlsx');
+      });
+      return;
+    }
+
+    addSheetFromTables(workbook, versionCurrent.substring(0, 31), theadSticky, tbodySticky, theadVX, tbodyVX);
+    workbook.xlsx.writeBuffer().then(function(buffer) {
+      var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, activeFamille + '.xlsx');
+    });
+  }
+
+  // Auto-déclenchement export si ?export_all=1 (lancé depuis la page Gel)
+  $(document).ready(function() {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('export_all') === '1') {
+      var paramVc     = urlParams.get('vc');
+      var paramVk     = urlParams.get('vk');
+      var paramVue    = urlParams.get('vue');
+      var paramAnnees = parseInt(urlParams.get('annees'));
+      if (paramVc) versionCurrent  = paramVc;
+      if (paramVk) versionCompared = paramVk;
+      if (paramVue) {
+        idVueEcheancesActif = paramVue;
+        if (!isNaN(paramAnnees)) {
+          yearsToShowByMonth   = paramAnnees;
+          yearsToShowByQuarter = paramAnnees;
+          yearsToShowAnnually  = paramAnnees;
+        }
+      }
+      isCompareMode = (versionCurrent !== versionCompared);
+      tableToExcelAllFamilies();
+    }
+  });
+</script>
+
+{% endblock %}
