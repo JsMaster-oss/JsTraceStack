@@ -736,6 +736,32 @@ def build_manual_lookup(version_data, mappings):
     return idx
 
 
+def identite_exacte(index_version, ligne, mappings):
+    """Ligne STRICTEMENT identique dans la version précédente, ou None.
+
+    Même contrat (wono + libellé), même famille, même (activité, produit,
+    scénario). C'est le « lien explicite » : évident, non litigieux, et donc
+    prioritaire sur le tableau manuel.
+    """
+    ck = (resolve_wono(ligne['wono_raw'], mappings), _norm(ligne['libelle']))
+    contrat = index_version.get(ck)
+    if not contrat:
+        return None
+    for cands in contrat.values():
+        for c in cands:
+            if c['raw'] == ligne['raw'] and _norm(c['famille']) == _norm(ligne['famille']):
+                return c
+    return None
+
+
+def _meme_ligne(a, b):
+    """Deux entrées d'index désignent-elles la même ligne ?"""
+    return (a['raw'] == b['raw']
+            and _norm(a['famille']) == _norm(b['famille'])
+            and _norm(a['libelle']) == _norm(b['libelle'])
+            and a['wono_raw'] == b['wono_raw'])
+
+
 def chain_key(version, wono_raw, libelle, famille, activite, produit, scenario):
     """Clé de mappings['chaine'] — valeurs BRUTES du XLSX, comme partout ailleurs.
 
@@ -1035,7 +1061,7 @@ def check_b_chaine_ruptures(xlsx_data, mappings, proposals):
                 # sinon : nouvelle ligne, aucun lien — pas d'anomalie
 
 
-def check_g_mapping_manuel(xlsx_data, lineages, ordre, mappings, issues, proposals):
+def check_g_mapping_manuel(xlsx_data, lineages, ordre, db_data, mappings, issues, proposals):
     """g) Tableau de mapping manuel — SOURCE DE VÉRITÉ des liens inter-versions.
 
     Pour chaque lignée :
@@ -1049,6 +1075,14 @@ def check_g_mapping_manuel(xlsx_data, lineages, ordre, mappings, issues, proposa
     Les liens sans ambiguïté sont écrits directement dans mappings['chaine'] :
     ils viennent déjà d'une décision humaine, ils n'ont pas à être re-confirmés
     (et restent donc utilisables en mode --yes).
+
+    PRIORITÉ — le tableau ne contredit jamais un lien explicite déjà établi :
+      1. correspondance exacte d'identité dans la version précédente ;
+      2. arbitrage manuel déjà rendu (source 'manuel-choisi') ;
+      3. liens déjà en base, pour une version absente d'IMPORT_DIR ;
+      4. le tableau, partout ailleurs.
+    Toute contradiction est signalée en AVERTISSEMENT et la ligne du tableau est
+    ignorée — l'import n'est pas interrompu.
     """
     # Le tableau est la SOURCE DE VÉRITÉ : ses liens automatiques (source 'manuel')
     # sont des données DÉRIVÉES, recalculées à chaque run. Sans ça, corriger une
@@ -1093,11 +1127,19 @@ def check_g_mapping_manuel(xlsx_data, lineages, ordre, mappings, issues, proposa
             if not blk:
                 continue
             if ver not in indexes:
-                proposals.append({
-                    'type': 'info',
-                    'message': (f"[MAPPING l.{row_no}] version '{ver}' absente de "
-                                f"{IMPORT_DIR} — bloc ignoré"),
-                })
+                if ver in db_data['versions']:
+                    issues.append({
+                        'type': 'warning',
+                        'message': (f"[MAPPING IGNORÉ l.{row_no}] version '{ver}' déjà en "
+                                    f"base et absente de {IMPORT_DIR} : ses liens existants "
+                                    f"font foi, le bloc du tableau est ignoré."),
+                    })
+                else:
+                    proposals.append({
+                        'type': 'info',
+                        'message': (f"[MAPPING l.{row_no}] version '{ver}' absente de "
+                                    f"{IMPORT_DIR} — bloc ignoré"),
+                    })
                 continue
             ck = (resolve_wono(blk['wono'], mappings), _norm(blk['libelle']))
             contrat = indexes[ver].get(ck)
@@ -1158,9 +1200,46 @@ def check_g_mapping_manuel(xlsx_data, lineages, ordre, mappings, issues, proposa
                 ck = chain_key(curr_ver, cl['wono_raw'], cl['libelle'],
                                cl['famille'], *cl['raw'])
 
+                # --- PRIORITÉ 1 : correspondance exacte d'identité ---
+                # Lien explicite et non litigieux : il l'emporte sur le tableau,
+                # qui n'aurait pas dû désigner cette ligne.
+                jumeau = identite_exacte(indexes[prev_ver], cl, mappings)
+                if jumeau is not None:
+                    vise = prev_c[0] if len(prev_c) == 1 else None
+                    if vise is None or not _meme_ligne(vise, jumeau):
+                        issues.append({
+                            'type': 'warning',
+                            'message': (
+                                f"[MAPPING IGNORÉ l.{row_no}] {curr_ver}: {_describe(cl)} "
+                                f"a une correspondance exacte en {prev_ver} — ce lien "
+                                f"explicite est conservé, la ligne du tableau "
+                                f"({'plusieurs candidates' if vise is None else _describe(vise)}) "
+                                f"est ignorée."),
+                        })
+                    continue
+
+                # --- PRIORITÉ 2 : arbitrage manuel déjà rendu ---
+                existant = mappings['chaine'].get(ck)
+                if existant and existant.get('source') == 'manuel-choisi':
+                    if len(prev_c) == 1 and not _meme_ligne(
+                            prev_c[0],
+                            {'raw': (existant['prev_activite'], existant['prev_produit'],
+                                     existant['prev_scenario']),
+                             'famille': existant.get('prev_famille') or '',
+                             'libelle': existant['prev_libelle'],
+                             'wono_raw': existant['prev_wono']}):
+                        issues.append({
+                            'type': 'warning',
+                            'message': (
+                                f"[MAPPING IGNORÉ l.{row_no}] {curr_ver}: {_describe(cl)} "
+                                f"— un arbitrage manuel désigne déjà "
+                                f"{existant['prev_activite']} / {existant['prev_produit']} / "
+                                f"{existant['prev_scenario']} en {existant['prev_version']} ; "
+                                f"il est conservé, la ligne du tableau est ignorée."),
+                        })
+                    continue
+
                 # --- 3. Cas simple : une ligne de chaque côté → lien direct ---
-                # Écrase un éventuel lien en cache : plus d'ambiguïté ici, donc
-                # plus rien à arbitrer, et c'est le tableau qui fait foi.
                 if len(prev_c) == 1 and len(curr_c) == 1:
                     pl = prev_c[0]
                     mappings['chaine'][ck] = {
@@ -1178,7 +1257,7 @@ def check_g_mapping_manuel(xlsx_data, lineages, ordre, mappings, issues, proposa
 
                 # --- 3bis. Ambiguïté : le produit désigne plusieurs lignes ---
                 if ck in mappings['chaine']:
-                    continue                 # arbitrage déjà rendu, on le garde
+                    continue                 # lien déjà établi, on le garde
                 proposals.append({
                     'type': 'chaine_manuel',
                     'version': curr_ver, 'prev_version': prev_ver,
@@ -2129,7 +2208,7 @@ def phase1(xlsx_data, db_data, mappings):
     print("[g] Tableau de mapping manuel inter-versions...")
     lineages, ordre = load_manual_mapping()
     liens_manuels = check_g_mapping_manuel(
-        xlsx_data, lineages, ordre, mappings, issues, proposals)
+        xlsx_data, lineages, ordre, db_data, mappings, issues, proposals)
     if MAPPING_XLSX.exists():
         # Sauver même sans lignée : la purge des liens dérivés doit être persistée.
         save_mappings(mappings)   # les liens sans ambiguïté sont déjà acquis
