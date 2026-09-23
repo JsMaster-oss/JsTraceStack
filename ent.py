@@ -20,9 +20,17 @@ LISTING = "liste_upload.txt"        # fichier produit par le .bat
 OUTPUT_DIR = "."
 
 # Racine telle qu'elle apparait dans le listing, et racine voulue en sortie.
-# Laisser identique si vous voulez garder les chemins Windows d'origine.
+# Mettre les deux identiques pour ne rien reecrire du tout.
+# Attention : une chaine r"..." ne peut pas se terminer par un backslash.
+# Ecrire r"V:\upload" (sans backslash final), pas r"V:\upload\".
 RACINE_LISTING = r"V:\upload"
-RACINE_SORTIE = "V:/upload"
+RACINE_SORTIE = r"V:\upload"
+
+# Style des chemins ecrits dans la colonne "chemin" :
+#   "windows" -> V:\upload\123.JPG   (antislash, comme dans le listing)
+#   "posix"   -> V:/upload/123.JPG   (slash)
+#   "brut"    -> exactement la ligne du listing, sans aucune reecriture
+STYLE_CHEMIN = "windows"
 
 SOURCE_BDD = "db"                   # "db" = MariaDB direct, "csv" = export CSV
 TABLE = "ma_table"
@@ -78,6 +86,23 @@ def charger_bdd():
     finally:
         conn.close()
 
+def chemin_sortie(chemin):
+    """Reecrit la racine si demande, puis applique le style de separateur choisi."""
+    if STYLE_CHEMIN == "brut":
+        return chemin
+
+    # Comparaison sur une forme neutre pour que la racine soit reconnue
+    # quel que soit le separateur utilise dans le listing.
+    neutre = chemin.replace("\\", "/")
+    racine_src = RACINE_LISTING.replace("\\", "/").rstrip("/")
+    racine_dst = RACINE_SORTIE.replace("\\", "/").rstrip("/")
+    if racine_src and neutre.lower().startswith(racine_src.lower()):
+        neutre = racine_dst + neutre[len(racine_src):]
+
+    if STYLE_CHEMIN == "windows":
+        return neutre.replace("/", "\\")
+    return neutre
+
 def normaliser(valeur):
     """Nettoie une valeur de la base : NULL, espaces, chemin eventuel."""
     if valeur is None:
@@ -118,11 +143,8 @@ def main():
                 stats["ok" if len(trouves) == 1 else "doublon"] += 1
                 for chemin in trouves:
                     reel = chemin.replace("\\", "/").rsplit("/", 1)[-1]
-                    sortie = chemin.replace("\\", "/")
-                    if RACINE_LISTING:
-                        sortie = sortie.replace(
-                            RACINE_LISTING.replace("\\", "/"), RACINE_SORTIE, 1)
-                    resultats.append((num, col, nom_bdd, reel, sortie, statut))
+                    resultats.append(
+                        (num, col, nom_bdd, reel, chemin_sortie(chemin), statut))
 
     log(f"Resultats : {stats['ok']} OK, {stats['doublon']} doublons, "
         f"{stats['introuvable']} introuvables, {stats['vide']} colonnes vides")
