@@ -1,7 +1,7 @@
 """
 Liste les images d'un dossier upload vers un CSV (et un XLSX si openpyxl est installé).
-Format attendu des fichiers : <1 à 6 chiffres>[CONTENT|BOX].<extension image>
-Ex : 123.JPG, 123CONTENT.jpg, 123BOX.png
+Format attendu : <1 à 6 chiffres><suffixe libre>.<extension image>
+Ex : 123.JPG, 123CONTENT.jpg, 123BOX.png, 123_img-2284 (2).jpg
 """
 import csv
 import re
@@ -15,8 +15,9 @@ RECURSIF = False          # True pour parcourir aussi les sous-dossiers
 SEPARATEUR = ";"          # ";" pour Excel FR, "," sinon
 # ----------------------------
 
+# (?!\d) : le numéro s'arrête au 6e chiffre max et n'est pas suivi d'un autre chiffre
 PATTERN = re.compile(
-    r"^(\d{1,6})(CONTENT|BOX)?\.(jpe?g|png|gif|bmp|webp|tiff?)$",
+    r"^(\d{1,6})(?!\d)(.*?)\.(jpe?g|png|gif|bmp|webp|tiff?)$",
     re.IGNORECASE,
 )
 
@@ -33,7 +34,7 @@ def main():
         else:
             ignores.append(f.as_posix())
 
-    # Tri par numéro puis par nom (123.JPG, 123BOX.jpg, 123CONTENT.jpg)
+    # Tri par numéro (numérique) puis par nom
     lignes.sort(key=lambda l: (int(l[0]), l[0], l[1].lower()))
 
     # CSV (utf-8-sig pour qu'Excel lise bien les accents)
@@ -52,10 +53,10 @@ def main():
         ws.append(["Num", "nomfichier", "chemin"])
         for l in lignes:
             ws.append(l)
-        # Colonne Num forcée en texte pour conserver les zéros de tête
+        # Colonne Num en texte pour conserver les zéros de tête
         for cell in ws["A"][1:]:
             cell.number_format = "@"
-        ws.column_dimensions["B"].width = 25
+        ws.column_dimensions["B"].width = 30
         ws.column_dimensions["C"].width = 60
         wb.save(OUTPUT_XLSX)
         print(f"XLSX -> {OUTPUT_XLSX}")
@@ -69,3 +70,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
