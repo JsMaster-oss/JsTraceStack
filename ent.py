@@ -15,9 +15,14 @@ RECURSIF = False          # True pour parcourir aussi les sous-dossiers
 SEPARATEUR = ";"          # ";" pour Excel FR, "," sinon
 # ----------------------------
 
+# Préfixes autorisés avant le numéro. Liste blanche volontaire :
+# accepter n'importe quel préfixe ferait passer "img-2284.jpg" pour le numéro 2284.
+PREFIXES = ["STOK"]
+
+_prefixes = "|".join(re.escape(p) for p in PREFIXES)
 # (?!\d) : le numéro s'arrête au 6e chiffre max et n'est pas suivi d'un autre chiffre
 PATTERN = re.compile(
-    r"^(\d{1,6})(?!\d)(.*?)\.(jpe?g|png|gif|bmp|webp|tiff?)$",
+    rf"^(?:{_prefixes})?(\d{{1,6}})(?!\d)(.*?)\.(jpe?g|png|gif|bmp|webp|tiff?)$",
     re.IGNORECASE,
 )
 
