@@ -1,124 +1,166 @@
 """
-Liste les images d'un dossier upload vers un CSV (et un XLSX si openpyxl est installé).
-LECTURE SEULE sur UPLOAD_DIR : aucun ajout, aucune modification, aucune suppression.
-Format attendu : [prefixe]<1 à 6 chiffres><suffixe libre>.<extension image>
-Ex : 123.JPG, 123CONTENT.jpg, 123_img-2284 (2).jpg, STOK123.JPG
+ETAPE 2 - A executer sur la machine Linux (Python + librairies OK).
 
-Optimisé pour les gros volumes (200 000+ fichiers) sur lecteur réseau :
-os.scandir() au lieu de pathlib, et aucun appel système par fichier.
+Croise :
+  - la liste des fichiers produite par 1_lister_windows.bat (liste_upload.txt)
+  - la table MariaDB (colonnes num, FichierJoint, FichierJoint2,
+    photoContenu, PhotoContenant)
+
+Sortie : un CSV/XLSX num | colonne | nom en base | nom reel | chemin complet | statut
+Aucun acces au dossier upload n'est necessaire ici : on travaille sur le listing.
 """
 import csv
 import os
-import re
 import sys
 import time
+from collections import defaultdict
 
 # ---------- Config ----------
-UPLOAD_DIR = r"V:/upload"
-OUTPUT_DIR = r"C:/temp/liste_images"   # surtout PAS dans UPLOAD_DIR
-RECURSIF = False          # True pour parcourir aussi les sous-dossiers
-SEPARATEUR = ";"          # ";" pour Excel FR, "," sinon
-PAS_LOG = 5000            # une ligne de suivi tous les N fichiers
-PREFIXES = ["STOK"]       # liste blanche des préfixes avant le numéro
-FAIRE_XLSX = True         # False = CSV seul (bien plus rapide sur gros volumes)
-# ----------------------------
+LISTING = "liste_upload.txt"        # fichier produit par le .bat
+OUTPUT_DIR = "."
 
-_prefixes = "|".join(re.escape(p) for p in PREFIXES)
-# (?!\d) : le numéro s'arrête au 6e chiffre max et n'est pas suivi d'un autre chiffre
-PATTERN = re.compile(
-    rf"^(?:{_prefixes})?(\d{{1,6}})(?!\d)(.*?)\.(jpe?g|png|gif|bmp|webp|tiff?)$",
-    re.IGNORECASE,
-)
+# Racine telle qu'elle apparait dans le listing, et racine voulue en sortie.
+# Laisser identique si vous voulez garder les chemins Windows d'origine.
+RACINE_LISTING = r"V:\upload"
+RACINE_SORTIE = "V:/upload"
+
+SOURCE_BDD = "db"                   # "db" = MariaDB direct, "csv" = export CSV
+TABLE = "ma_table"
+COLONNES = ["FichierJoint", "FichierJoint2", "photoContenu", "PhotoContenant"]
+COL_NUM = "num"
+
+DB = dict(host="192.168.1.10", port=3306, user="lecteur",
+          password="motdepasse", database="mabase")
+
+EXPORT_CSV = "export_table.csv"     # si SOURCE_BDD = "csv"
+SEPARATEUR = ";"
+FAIRE_XLSX = True
+# ----------------------------
 
 def log(msg):
     print(msg, flush=True)
 
-def parcourir(racine):
-    """Génère (nom_fichier, chemin_complet) sans stat() superflu."""
-    if RECURSIF:
-        for dossier, _sous, fichiers in os.walk(racine):
-            base = dossier.replace("\\", "/").rstrip("/")
-            for nom in fichiers:
-                yield nom, f"{base}/{nom}"
-    else:
-        base = racine.replace("\\", "/").rstrip("/")
-        with os.scandir(racine) as it:
-            for entry in it:
-                # is_file() utilise le cache du scandir : pas d'aller-retour réseau
-                if entry.is_file():
-                    yield entry.name, f"{base}/{entry.name}"
+def charger_listing(chemin):
+    """Index : nom de fichier en minuscules -> liste des chemins complets."""
+    index = defaultdict(list)
+    total = 0
+    with open(chemin, encoding="utf-8", errors="replace") as fh:
+        for ligne in fh:
+            ligne = ligne.strip().lstrip("\ufeff")
+            if not ligne:
+                continue
+            total += 1
+            nom = ligne.replace("\\", "/").rsplit("/", 1)[-1]
+            index[nom.lower()].append(ligne)
+    log(f"Listing : {total} fichiers, {len(index)} noms distincts")
+    return index
+
+def charger_bdd():
+    """Retourne une liste de dicts {num, FichierJoint, ...}."""
+    if SOURCE_BDD == "csv":
+        with open(EXPORT_CSV, encoding="utf-8-sig", newline="") as fh:
+            # sniff du separateur (; ou ,)
+            echantillon = fh.read(4096)
+            fh.seek(0)
+            try:
+                dialecte = csv.Sniffer().sniff(echantillon, delimiters=";,\t")
+            except csv.Error:
+                dialecte = csv.excel
+            return list(csv.DictReader(fh, dialect=dialecte))
+
+    import pymysql          # pip install pymysql
+    cols = ", ".join(f"`{c}`" for c in [COL_NUM] + COLONNES)
+    conn = pymysql.connect(charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor, **DB)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT {cols} FROM `{TABLE}`")
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+def normaliser(valeur):
+    """Nettoie une valeur de la base : NULL, espaces, chemin eventuel."""
+    if valeur is None:
+        return ""
+    v = str(valeur).strip().strip('"').strip()
+    if not v or v.lower() in ("null", "none", "0"):
+        return ""
+    # si la base stocke un chemin et pas juste un nom de fichier
+    return v.replace("\\", "/").rsplit("/", 1)[-1]
 
 def main():
-    log(f"Dossier source : {UPLOAD_DIR}  (lecture seule)")
-    if not os.path.isdir(UPLOAD_DIR):
-        log("ERREUR : dossier introuvable ou inaccessible.")
-        return
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    log(f"Dossier de sortie : {OUTPUT_DIR}")
-    log("Parcours en cours...")
-
     t0 = time.time()
-    match = PATTERN.match
-    lignes = []
-    ajouter = lignes.append
-    ignores = []
-    vus = 0
+    if not os.path.isfile(LISTING):
+        log(f"ERREUR : listing introuvable ({LISTING})")
+        return
+    index = charger_listing(LISTING)
 
-    for nom, chemin in parcourir(UPLOAD_DIR):
-        vus += 1
-        m = match(nom)
-        if m:
-            ajouter((m.group(1), nom, chemin))
-        else:
-            ignores.append(chemin)
-        if vus % PAS_LOG == 0:
-            dt = time.time() - t0
-            log(f"  {vus} fichiers lus - {len(lignes)} retenus - {vus/dt:.0f} fich./s")
+    log("Lecture de la base...")
+    lignes_bdd = charger_bdd()
+    log(f"  {len(lignes_bdd)} enregistrements")
 
-    dt = time.time() - t0
-    log(f"Parcours terminé : {vus} fichiers en {dt:.1f}s ({vus/max(dt, 0.001):.0f} fich./s)")
-    log(f"  -> {len(lignes)} images retenues, {len(ignores)} hors format")
+    resultats = []
+    stats = defaultdict(int)
 
-    log("Tri...")
-    lignes.sort(key=lambda l: (int(l[0]), l[0], l[1].lower()))
+    for row in lignes_bdd:
+        num = str(row.get(COL_NUM, "")).strip()
+        for col in COLONNES:
+            nom_bdd = normaliser(row.get(col))
+            if not nom_bdd:
+                stats["vide"] += 1
+                continue
+            trouves = index.get(nom_bdd.lower(), [])
+            if not trouves:
+                resultats.append((num, col, nom_bdd, "", "", "INTROUVABLE"))
+                stats["introuvable"] += 1
+            else:
+                statut = "OK" if len(trouves) == 1 else f"DOUBLON({len(trouves)})"
+                stats["ok" if len(trouves) == 1 else "doublon"] += 1
+                for chemin in trouves:
+                    reel = chemin.replace("\\", "/").rsplit("/", 1)[-1]
+                    sortie = chemin.replace("\\", "/")
+                    if RACINE_LISTING:
+                        sortie = sortie.replace(
+                            RACINE_LISTING.replace("\\", "/"), RACINE_SORTIE, 1)
+                    resultats.append((num, col, nom_bdd, reel, sortie, statut))
 
-    csv_path = os.path.join(OUTPUT_DIR, "liste_images.csv")
-    log(f"Écriture du CSV : {csv_path}")
+    log(f"Resultats : {stats['ok']} OK, {stats['doublon']} doublons, "
+        f"{stats['introuvable']} introuvables, {stats['vide']} colonnes vides")
+
+    # Fichiers presents sur le disque mais references nulle part
+    references = {n.lower() for _, _, n, _, _, _ in resultats if n}
+    orphelins = [c[0] for nom, c in index.items() if nom not in references]
+    log(f"  {len(orphelins)} fichiers du disque non references en base")
+
+    entetes = ["num", "colonne", "nom_en_base", "nom_reel", "chemin", "statut"]
+    csv_path = os.path.join(OUTPUT_DIR, "mapping.csv")
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, delimiter=SEPARATEUR)
-        w.writerow(["Num", "nomfichier", "chemin"])
-        w.writerows(lignes)
-    log(f"  CSV terminé : {len(lignes)} lignes")
+        w.writerow(entetes)
+        w.writerows(resultats)
+    log(f"CSV ecrit : {csv_path} ({len(resultats)} lignes)")
+
+    with open(os.path.join(OUTPUT_DIR, "orphelins.txt"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(orphelins))
 
     if FAIRE_XLSX:
         try:
             from openpyxl import Workbook
-            xlsx_path = os.path.join(OUTPUT_DIR, "liste_images.xlsx")
-            log(f"Écriture du XLSX (peut prendre 1-2 min) : {xlsx_path}")
-            wb = Workbook(write_only=True)   # mode léger, peu de RAM
-            ws = wb.create_sheet("Images")
-            ws.append(["Num", "nomfichier", "chemin"])
-            for i, ligne in enumerate(lignes, 1):
-                ws.append(list(ligne))
-                if i % 50000 == 0:
-                    log(f"  {i}/{len(lignes)} lignes préparées")
-            wb.save(xlsx_path)
-            log("  XLSX terminé")
+            wb = Workbook(write_only=True)
+            ws = wb.create_sheet("Mapping")
+            ws.append(entetes)
+            for r in resultats:
+                ws.append(list(r))
+            wb.save(os.path.join(OUTPUT_DIR, "mapping.xlsx"))
+            log("XLSX ecrit : mapping.xlsx")
         except ImportError:
-            log("  openpyxl absent : pas de XLSX (pip install openpyxl)")
+            log("openpyxl absent : pas de XLSX")
 
-    if ignores:
-        ign_path = os.path.join(OUTPUT_DIR, "fichiers_ignores.txt")
-        with open(ign_path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(ignores))
-        log(f"{len(ignores)} fichiers hors format listés dans {ign_path}")
-
-    log(f"Terminé en {time.time() - t0:.1f}s")
+    log(f"Termine en {time.time() - t0:.1f}s")
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         print(f"ERREUR : {e}", flush=True)
-    if sys.stdout.isatty():
-        input("Appuyez sur Entrée pour fermer...")
+        sys.exit(1)
