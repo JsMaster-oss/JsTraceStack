@@ -1,0 +1,628 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container block-content">
+    <link href="../static/css/index_fiche.css" rel="stylesheet" type="text/css" media="all" xmlns="http://www.w3.org/1999/html">
+    <link href="../static/css/flash.css" rel="stylesheet" type="text/css" media="all" xmlns="http://www.w3.org/1999/html">
+
+    <div class="twothird" >
+        <div class="container card white margin-bottom">
+            <hr>
+            <h3 class="text-grey padding-16" style="text-align: center;"> {% block title %}Gestionnaire des fiches de recensement{% endblock %}</h3>
+            <hr>
+            {% if current_user.role != "Reader" %}
+            <div class="div_new_fiche">
+                <button name="btn_new_fiche" id="id_btn_new_fiche" class="create btn btn-secondary" onclick="new_fiche()"> Créer une nouvelle fiche </button>
+            </div>
+            {% endif %}
+            <div class="my_scroll_div" id="id_div_liste_fiche">
+            </div>
+            <hr>
+
+        </div>
+
+        <!-- Modal -->
+        <div class="modal fade" id="id_modal_dialogue" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="id_modal_dialogue_title"></h5>
+                        <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div id="id_modal_dialogue_text" class="modal-body"></div>
+                    <div class="modal-footer" id="id_modal_dialogue_footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Ok</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-error" class="modal fade" role="dialog">
+            <div class="modal-dialog">
+
+                <!-- Modal content-->
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h4 class="modal-title">Accès refusé</h4>
+                        <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        {% with messages = get_flashed_messages() %}
+                        {% if messages %}
+                        <ul class=flashes>
+                            {% for message in messages %}
+                            <li>{{ message }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% endwith %}
+                    </div>
+                    <div class="modal-footer" id="id_modal_dialogue_footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Ok</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+<script src="{{ url_for('static', filename= 'bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename= 'js/ajax.js') }}"></script>
+<script src="{{ url_for('static', filename= 'js/Flash/flash.js') }}"></script>
+
+<script type="text/javascript">
+
+    var list_attribut = [{"nom":"Désignation Article","attribut":"Designation_Article","type":"texte"},
+                         {"nom":"Référence Article","attribut":"Reference_Article","type":"texte"},
+                         {"nom":"Programme","attribut":"Programme","type":"texte"},
+                         {"nom":"Catégorie Technologique","attribut":"Categorie_Technologique","type":"texte"},
+                         {"nom":"Auteur","attribut":"Auteur","type":"texte"},
+                      // {"nom":"Date de dernière mise à jour","attribut":"DateCreation","type":"date"},
+                         {"nom":"Date de validité","attribut":"Date_Validite_Cycle_Contractuel_Equipementiers","type":"date"}];
+                      // {"nom":"Version","attribut":"Version","type":"texte"}];
+
+    function new_fiche()
+    {
+        window.open("{{ url_for('main.formulaire_fiche') }}","_self");
+    }
+
+    window.onload = function()
+    {
+        var server_data_list = {"msg": "init_index_fiche"};
+        create_table();
+
+        $.ajax({
+            type: "POST",
+            url: "/get_liste_fiche",
+            data: JSON.stringify(server_data_list),
+            contentType: "application/json",
+            dataType: 'json'
+        }).done(function(data){
+
+            // Récupérer les fiches avec les versions les plus hautes
+            let highestFiches = highest_version_fiches(data["liste_fiche"]);
+            for(var fiche of highestFiches)
+            {
+                create_item_fiche(fiche);
+            };
+            init_filter();
+        });
+    }
+
+    function create_item_fiche(fiche)
+    {
+        var idFiche = fiche["_id"];
+
+        var ligneTable = document.createElement('tr');
+
+        ligneTable.setAttribute("id_fiche",idFiche);
+
+        for(attr of list_attribut)
+        {
+            var cell = document.createElement('td');
+            cell.innerHTML = fiche[attr.attribut];
+            cell.className=attr.attribut
+            ligneTable.appendChild(cell)
+        }
+
+        var cellV = document.createElement('td');
+        cellV.innerHTML = fiche["Version"];
+        ligneTable.appendChild(cellV)
+
+        var cellU = document.createElement('td');
+        cellU.innerHTML = "";
+        ligneTable.appendChild(cellU)
+
+        cellU.id = "id_"+idFiche+"_option"
+
+        var btnView = document.createElement('button');
+        btnView.innerHTML = "<i class='fa fa-eye'></i>";
+        btnView.className = "btnOption";
+        btnView.title="Voir";
+        cellU.appendChild(btnView);
+
+        btnView.onclick = function()
+        {
+            var mode = "view"
+            window.open("{{url_for('main.formulaire_fiche')}}?idFiche="+idFiche+"&mode="+mode, "_self");
+        };
+        // Syntaxe erreur mais fonctionnement OK
+        {% if current_user.role != "Reader" %}
+
+        var btnModify = document.createElement('button');
+        btnModify.innerHTML = "<i class='fa fa-pencil-square-o'></i>"
+        btnModify.className = "btnOption"
+        btnModify.title="Modifier"
+        cellU.appendChild(btnModify)
+
+        btnModify.onclick = function()
+        {
+            var mode = "modify"
+            window.open("{{url_for('main.formulaire_fiche')}}?idFiche="+idFiche+"&mode="+mode, "_self");
+        };
+
+        var aDownload = document.createElement('a');
+        aDownload.innerHTML = "<i class='fa fa-download'></i>";
+        aDownload.title="Charger"
+        aDownload.href="{{url_for('main.charger_data_fiche',idFiche='')}}"+idFiche
+        cellU.appendChild(aDownload)
+
+        var btnDelete = document.createElement('button');
+        btnDelete.innerHTML = "<i class='fa fa-trash'></i>";
+        btnDelete.className = "btnOption"
+        btnDelete.title="Supprimer"
+        cellU.appendChild(btnDelete)
+
+        btnDelete.onclick = function()
+        {
+            document.getElementById("id_modal_dialogue_title").innerHTML = "Supprimer la fiche ?";
+            document.getElementById("id_modal_dialogue_text").innerHTML = "";
+
+            var text = "Voulez vous supprimer cette fiche ?"
+
+            document.getElementById("id_modal_dialogue_text").innerHTML = text
+
+            document.getElementById("id_modal_dialogue_footer").innerHTML="";
+
+            var btnAnnuler = document.createElement('button');
+            btnAnnuler.className = "btn btn-secondary";
+            btnAnnuler.innerHTML = "Annuler";
+            document.getElementById("id_modal_dialogue_footer").appendChild(btnAnnuler);
+
+            btnAnnuler.onclick = function()
+            {
+                $("#id_modal_dialogue").modal("hide");
+            };
+
+            var btnSupprimer = document.createElement('button');
+            btnSupprimer.className = "btn btn-primary";
+            btnSupprimer.innerHTML = "Supprimer";
+            document.getElementById("id_modal_dialogue_footer").appendChild(btnSupprimer);
+
+            btnSupprimer.onclick = function()
+            {
+                var div_spinner_upload = document.createElement('div');
+                div_spinner_upload.className = "spinner-border";
+                document.getElementById("id_modal_dialogue_footer").appendChild(div_spinner_upload);
+
+                var data_fiche = {"id_fiche" : idFiche};
+
+                $.ajax({type: "POST",
+                    url: "/supprimer_fiche",
+                    data: JSON.stringify(data_fiche),
+                    contentType: "application/json",
+                    dataType: 'json'
+                }).done(function(data)
+                {
+                    var body = document.getElementById("id_table_body")
+
+                    body.querySelector('[id_fiche="'+idFiche+'"]').remove()
+
+                    $("#id_modal_dialogue").modal("hide");
+                });
+            };
+            $("#id_modal_dialogue").modal("show");
+        };
+        // Syntaxe erreur mais fonctionnement OK
+        {% endif %}
+
+        document.getElementById("id_table_body").appendChild(ligneTable)
+    }
+
+    function create_table()
+    {
+        var tableFiche = document.createElement('table');
+        tableFiche.className = "table"
+
+        var headTable = document.createElement('thead');
+        headTable.className = "fixed-header";
+        headTable.id = "id_head_table"
+        tableFiche.appendChild(headTable)
+
+        var headLigne = document.createElement('tr');
+        headTable.appendChild(headLigne)
+
+        var bodyTable = document.createElement('tbody');
+        bodyTable.id = "id_table_body"
+        tableFiche.appendChild(bodyTable)
+
+        for(attr of list_attribut)
+        {
+            var cell = document.createElement('td');
+            cell.className="filter dropdown_td_body"
+            cell.attributFilter=attr.attribut
+            cell.setAttribute("attributFilter",attr.attribut);
+            cell.typeFilter=attr.type
+            headLigne.appendChild(cell)
+            if(attr.type=="texte")
+            {
+                cell.appendChild(createSelecteurText(attr.nom));
+            }
+            else
+            {
+                cell.appendChild(createSelecteurDate(attr.nom));
+            }
+        }
+
+        var cellV = document.createElement('td');
+        cellV.innerHTML = "Version";
+        cellV.className = "small_col";
+        headLigne.appendChild(cellV)
+
+        var cellU = document.createElement('td');
+        cellU.innerHTML = "Usage";
+        cellU.className = "small_col";
+        headLigne.appendChild(cellU)
+
+        document.getElementById("id_div_liste_fiche").appendChild(tableFiche)
+
+    }
+
+    function createSelecteurText(name)
+    {
+        var detail = document.createElement('details')
+
+        var summary = document.createElement('summary')
+        summary.innerHTML = name;
+        detail.appendChild(summary);
+
+        var dropdownDivContainer = document.createElement('div')
+        dropdownDivContainer.className="dropdown_div_filter"
+
+        var textInputDiv = document.createElement('div');
+        textInputDiv.className = "fulfill_width";
+
+        var input = document.createElement('input')
+        input.type="text"
+        input.onkeyup = function ()
+        {
+            // La recherche texte agit à la fois sur les lignes du tableau et sur
+            // la liste des cases à cocher : tout est recalculé dans filtrage_table()
+            filtrage_table();
+        };
+        textInputDiv.appendChild(input);
+        dropdownDivContainer.appendChild(textInputDiv);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var inputCoche = document.createElement('input')
+        inputCoche.type="checkbox"
+        inputCoche.id="id_"+name+"_coche"
+        inputCoche.checked = false
+        inputCoche.onclick = function()
+        {
+            // Coche / décoche uniquement les valeurs actuellement visibles
+            // (donc compatibles avec les autres filtres)
+            for (box of this.parentNode.querySelector('div.radio').querySelectorAll('input'))
+            {
+                if(box.parentNode.style.display != "none")
+                {
+                    box.checked = this.checked
+                }
+            }
+            filtrage_table();
+        };
+
+        var labelCoche = document.createElement('label')
+        labelCoche.innerHTML="Tout cocher";
+        labelCoche.setAttribute("for", inputCoche.id);
+
+        dropdownDivContainer.appendChild(inputCoche);
+        dropdownDivContainer.appendChild(labelCoche);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var listCheckBox = document.createElement('div')
+        listCheckBox.className="radio"
+        dropdownDivContainer.appendChild(listCheckBox);
+
+        detail.appendChild(dropdownDivContainer);
+
+        return detail
+    }
+
+    function createSelecteurDate(name)
+    {
+        var detail = document.createElement('details')
+
+        var summary = document.createElement('summary')
+        summary.innerHTML = name;
+        detail.appendChild(summary);
+
+        var dropdownDivContainer = document.createElement('div')
+        dropdownDivContainer.className="dropdown_div_filter"
+
+        var input_inf = document.createElement('input')
+        input_inf.type="date"
+        input_inf.onchange = function () {filtrage_table()};
+        dropdownDivContainer.appendChild(input_inf);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var input_sup = document.createElement('input')
+        input_sup.type="date"
+        input_sup.onchange = function () {filtrage_table()};
+        dropdownDivContainer.appendChild(input_sup);
+
+        detail.appendChild(dropdownDivContainer);
+
+        return detail
+    }
+
+    /* ------------------------------------------------------------------
+       FILTRAGE
+       - Aucune case cochée sur une colonne = aucune contrainte sur cette
+         colonne (toutes les valeurs sont donc affichées par défaut).
+       - Les filtres sont interdépendants : la liste des valeurs proposées
+         par une colonne est calculée sur les lignes qui passent TOUS les
+         autres filtres (la colonne elle-même étant exclue du calcul, ses
+         valeurs restent donc toutes visibles).
+       ------------------------------------------------------------------ */
+
+    // Lit l'état courant de chaque filtre de l'entête
+    function get_etat_filtres()
+    {
+        var head = document.getElementById("id_head_table")
+        var etats = []
+
+        for(filter of head.querySelectorAll("td.filter"))
+        {
+            var etat = {element: filter,
+                        attribut: filter.getAttribute("attributFilter"),
+                        type: filter.typeFilter}
+
+            if(filter.typeFilter=="texte")
+            {
+                etat.recherche = filter.querySelector('input[type="text"]').value.toUpperCase()
+
+                etat.coches = []
+                for(check of filter.querySelectorAll('div.radio input[type="checkbox"]:checked'))
+                {
+                    etat.coches.push(check.parentNode.querySelector('label').innerHTML)
+                }
+            }
+            else
+            {
+                var dates = filter.querySelectorAll('input[type="date"]');
+
+                etat.dateInf = (dates[0].value === "") ? null : new Date(dates[0].value).getTime()
+                etat.dateSup = (dates[1].value === "") ? null : new Date(dates[1].value).getTime()
+            }
+
+            etats.push(etat)
+        }
+        return etats
+    }
+
+    // Valeur de la cellule d'une ligne pour un attribut donné
+    function valeur_cellule(row, attribut)
+    {
+        var cell = row.querySelector("td."+attribut)
+        return (cell === null) ? "" : cell.innerHTML
+    }
+
+    // Une valeur passe-t-elle le filtre d'une colonne ?
+    function valeur_valide(valeur, etat)
+    {
+        if(etat.type=="texte")
+        {
+            if (valeur.toUpperCase().indexOf(etat.recherche) == -1)
+            {
+                return false
+            }
+
+            // Aucune case cochée => pas de contrainte sur cette colonne
+            if (etat.coches.length > 0 && etat.coches.indexOf(valeur) == -1)
+            {
+                return false
+            }
+            return true
+        }
+        else
+        {
+            var date = new Date(valeur).getTime();
+
+            if (isNaN(date))
+            {
+                return (etat.dateInf === null) && (etat.dateSup === null)
+            }
+
+            if ((etat.dateInf !== null) && (date < etat.dateInf))
+            {
+                return false
+            }
+
+            if ((etat.dateSup !== null) && (etat.dateSup < date))
+            {
+                return false
+            }
+            return true
+        }
+    }
+
+    // La ligne passe-t-elle tous les filtres (hors celui d'indice ignore) ?
+    function ligne_valide(row, etats, ignore)
+    {
+        for(var i = 0; i < etats.length; i++)
+        {
+            if(i === ignore)
+            {
+                continue;
+            }
+
+            if(!valeur_valide(valeur_cellule(row, etats[i].attribut), etats[i]))
+            {
+                return false
+            }
+        }
+        return true
+    }
+
+    function filtrage_table()
+    {
+        var body = document.getElementById("id_table_body")
+        var rows = body.querySelectorAll("tr")
+
+        var etats = get_etat_filtres()
+
+        // 1 - Affichage des lignes
+        for(row of rows)
+        {
+            row.style.display = ligne_valide(row, etats, -1) ? "" : "none";
+        }
+
+        // 2 - Mise à jour des valeurs proposées par chaque filtre texte,
+        //     en fonction des autres filtres (interdépendance)
+        for(var i = 0; i < etats.length; i++)
+        {
+            if(etats[i].type != "texte")
+            {
+                continue;
+            }
+
+            var valeurs_dispo = new Set()
+            for(row of rows)
+            {
+                if(ligne_valide(row, etats, i))
+                {
+                    valeurs_dispo.add(valeur_cellule(row, etats[i].attribut))
+                }
+            }
+
+            for(check of etats[i].element.querySelectorAll('div.radio input[type="checkbox"]'))
+            {
+                var labelTxt = check.parentNode.querySelector('label').innerHTML
+
+                // On garde visible une valeur cochée même si elle n'est plus
+                // proposée, sinon l'utilisateur ne pourrait plus la décocher
+                var dispo = valeurs_dispo.has(labelTxt) || check.checked
+
+                // La zone de recherche texte filtre aussi la liste des valeurs
+                var trouve = labelTxt.toUpperCase().indexOf(etats[i].recherche) != -1
+
+                check.parentNode.style.display = (dispo && trouve) ? "" : "none"
+            }
+
+            // "Tout cocher" reflète l'état des valeurs visibles
+            var coche_tout = etats[i].element.querySelector('div.dropdown_div_filter > input[type="checkbox"]')
+            if(coche_tout !== null)
+            {
+                var visibles = 0
+                var cochees = 0
+                for(check of etats[i].element.querySelectorAll('div.radio input[type="checkbox"]'))
+                {
+                    if(check.parentNode.style.display != "none")
+                    {
+                        visibles++;
+                        if(check.checked)
+                        {
+                            cochees++;
+                        }
+                    }
+                }
+                coche_tout.checked = (visibles > 0) && (visibles == cochees)
+            }
+        }
+    }
+
+    function init_filter()
+    {
+        var head = document.getElementById("id_head_table")
+        var body = document.getElementById("id_table_body")
+
+        list_filter = head.querySelectorAll("td.filter")
+
+        for(filter of list_filter)
+        {
+            if(filter.typeFilter=="texte")
+            {
+                list_cell = body.querySelectorAll("td."+filter.attributFilter);
+
+                list_word = new Set(Array.from(list_cell, x => x.innerHTML));
+
+                divRadio = filter.querySelector("div.radio");
+
+                var fieldset = document.createElement('fieldset')
+                fieldset.className = "scroll_filter"
+                for(word of list_word)
+                {
+                    var divCheckBox = document.createElement('div');
+                    var labelCheckBox = document.createElement('label');
+                    var inputCheckBox = document.createElement('input');
+
+                    inputCheckBox.type = "checkbox";
+                    // Par défaut aucune valeur n'est cochée : aucune contrainte,
+                    // toutes les lignes et toutes les valeurs restent affichées
+                    inputCheckBox.checked = false;
+                    inputCheckBox.id = word;
+                    inputCheckBox.name = word;
+                    inputCheckBox.onclick = function () {filtrage_table()};
+
+                    labelCheckBox.setAttribute("for", inputCheckBox.id)
+                    labelCheckBox.innerHTML = word;
+
+                    divCheckBox.appendChild(inputCheckBox)
+                    divCheckBox.appendChild(labelCheckBox)
+                    fieldset.appendChild(divCheckBox)
+                }
+                divRadio.appendChild(fieldset)
+            }
+        }
+
+        filtrage_table();
+    }
+
+    function highest_version_fiches(data) {
+        let fiches = data;
+
+        // Trier les fiches par désignation et par version
+        fiches.sort((a, b) => a["Designation_Article"].localeCompare(b["Designation_Article"]) || b["Version"] - a["Version"]);
+
+        // Parcourir les fiches triées et ajouter uniquement les fiches avec la version la plus haute
+        let highestFiches = [];
+        for(let i = 0; i < fiches.length; i++) {
+            if(i === 0 || fiches[i]["Designation_Article"] !== fiches[i - 1]["Designation_Article"]) {
+                highestFiches.push(fiches[i]);
+            }
+        }
+
+        return highestFiches;
+    }
+
+    /* Trigger flash modal */
+    $(document).ready(function() {
+        var messages = "{{ get_flashed_messages() }}";
+
+        if (typeof messages != 'undefined' && messages != '[]') {
+            $("#modal-error").modal('show');
+        };
+    });
+
+</script>
+
+{% endblock %}
