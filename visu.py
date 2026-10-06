@@ -20,11 +20,26 @@ Intégration dans la route existante — le corps devient :
 
         # Recuperation des donnees de cycles (MongoDB)
         df_cycle_detail = generate_data_cycle(config)
+        df_cycle_detail = normaliser_colonnes_selecteur(df_cycle_detail)
 
         data = get_listes_selecteur(df_cycle_detail)
         data["combinaisons"] = get_combinaisons_selecteur(df_cycle_detail)
 
         return jsonify(data)
+
+ET, IMPÉRATIVEMENT, LA MÊME NORMALISATION AVANT LE FILTRAGE DU GRAPHIQUE :
+
+    @main.route("/create_graph_analyse_CE2", methods=["POST"])
+    ...
+    def create_graph_analyse_CE2():
+
+        df_cycle_detail = generate_data_cycle(config)
+        df_cycle_detail = normaliser_colonnes_selecteur(df_cycle_detail)
+        # ... puis le filtrage existant sur req["reference_article"], etc.
+
+Sans cela, une valeur portant un espace de fin est affichée "REF-A" mais vaut
+"REF-A " en base : le filtrage ne retient aucune ligne et le graphique sort
+vide, sans erreur.
 
 POURQUOI REMPLACER AUSSI LA CONSTRUCTION DES LISTES
 ---------------------------------------------------
@@ -54,26 +69,69 @@ COLONNES_SELECTEUR = {
 }
 
 
-def _normaliser(df_cycle_detail, colonnes):
+def normaliser_colonnes_selecteur(df_cycle_detail, colonnes=None):
     """
-    Sous-ensemble du DataFrame limité aux colonnes des sélecteurs, renommées
-    avec les noms attendus par la page et normalisées en chaînes.
+    Renvoie une copie du DataFrame dont les colonnes des sélecteurs sont
+    normalisées : valeurs manquantes ramenées à une chaîne vide, conversion en
+    chaîne, espaces de début et de fin supprimés. Les noms de colonnes sont
+    inchangés.
 
-    C'est le point commun aux deux fonctions publiques : libellés des cases à
-    cocher et valeurs des combinaisons sortent d'ici, donc sont identiques.
+    À APPLIQUER AUX DEUX ENDROITS
+    -----------------------------
+    Cette fonction doit être appelée aussi bien dans /get_data_selecteur (qui
+    produit les libellés des cases à cocher) que dans /create_graph_analyse_CE2
+    (qui filtre les données avec les valeurs renvoyées par la page).
+
+    Si elle n'est appliquée que d'un côté, une valeur portant un espace de fin
+    est affichée "REF-A" mais vaut "REF-A " en base : le `isin` du filtrage ne
+    retient aucune ligne et le graphique sort vide, sans erreur.
+
+    La fonction est idempotente : l'appliquer deux fois ne change rien.
+
+    Parameters
+    ----------
+    df_cycle_detail : pandas.DataFrame
+        Sortie de generate_data_cycle(config).
+    colonnes : dict, optional
+        {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copie normalisée, mêmes colonnes.
     """
+    if colonnes is None:
+        colonnes = COLONNES_SELECTEUR
+
     manquantes = [col for col in colonnes.values() if col not in df_cycle_detail.columns]
     if manquantes:
         raise KeyError(
             "Colonnes absentes du DataFrame des cycles : " + ", ".join(manquantes)
         )
 
-    sous_df = df_cycle_detail[list(colonnes.values())].copy()
-    sous_df.columns = list(colonnes.keys())
+    df_normalise = df_cycle_detail.copy()
 
-    for selecteur in sous_df.columns:
+    for colonne in colonnes.values():
         # fillna avant astype : sinon un NaN deviendrait la chaîne "nan"
-        sous_df[selecteur] = sous_df[selecteur].fillna("").astype(str).str.strip()
+        df_normalise[colonne] = (
+            df_normalise[colonne].fillna("").astype(str).str.strip()
+        )
+
+    return df_normalise
+
+
+def _sous_df(df_cycle_detail, colonnes):
+    """
+    Sous-ensemble normalisé, limité aux colonnes des sélecteurs et renommé avec
+    les noms attendus par la page.
+
+    Point commun aux deux fonctions publiques : libellés des cases à cocher et
+    valeurs des combinaisons sortent d'ici, donc sont identiques.
+    """
+    df_normalise = normaliser_colonnes_selecteur(df_cycle_detail, colonnes)
+
+    sous_df = df_normalise[list(colonnes.values())].copy()
+    sous_df.columns = list(colonnes.keys())
 
     return sous_df
 
@@ -103,7 +161,7 @@ def get_listes_selecteur(df_cycle_detail, colonnes=None, trier=True):
     if colonnes is None:
         colonnes = COLONNES_SELECTEUR
 
-    sous_df = _normaliser(df_cycle_detail, colonnes)
+    sous_df = _sous_df(df_cycle_detail, colonnes)
 
     data = {}
     for selecteur in colonnes:
@@ -137,6 +195,6 @@ def get_combinaisons_selecteur(df_cycle_detail, colonnes=None):
     if colonnes is None:
         colonnes = COLONNES_SELECTEUR
 
-    sous_df = _normaliser(df_cycle_detail, colonnes)
+    sous_df = _sous_df(df_cycle_detail, colonnes)
 
     return sous_df.drop_duplicates().to_dict(orient="records")
