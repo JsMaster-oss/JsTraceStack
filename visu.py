@@ -2,41 +2,120 @@
 """
 Interdépendance des sélecteurs de la page visualisation.
 
-La page visualisation ne détient pas les données : c'est le serveur qui
-construit le graphique. Pour que les sélecteurs puissent se restreindre
-mutuellement côté navigateur, la route /get_data_selecteur doit renvoyer, en
-plus des listes de valeurs, la liste des COMBINAISONS existantes.
+La page ne détient pas les données : c'est le serveur qui construit le
+graphique. Pour que les sélecteurs puissent se restreindre mutuellement côté
+navigateur, /get_data_selecteur doit renvoyer, en plus des listes de valeurs,
+la liste des COMBINAISONS existantes.
 
-Il ne s'agit pas des données complètes mais seulement des n-uplets distincts
-(une entrée par combinaison réellement présente en base), ce qui reste léger et
-n'est chargé qu'une fois au chargement de la page.
+Il ne s'agit pas des données complètes mais des n-uplets distincts. Comme
+generate_data_cycle() ne garde qu'une ligne par Designation_Article, leur
+nombre est au plus celui des articles : c'est léger, et chargé une seule fois.
 
-À intégrer dans la route /get_data_selecteur existante :
+Intégration dans la route existante — le corps devient :
 
-    data = {...}                                    # ce qui est déjà renvoyé
-    data["combinaisons"] = get_combinaisons_selecteur(my_collection)
-    return jsonify(data)
+    @main.route("/get_data_selecteur", methods=["POST"])
+    @login_required
+    @roles_required("Admin", "Writer", "Reader")
+    def get_data_selecteur():
 
-Tant que cette clé n'est pas renvoyée, templates/visualisation.html fonctionne
-quand même : les cases restent décochées par défaut, seule l'interdépendance
-est inactive. Aucune régression possible.
+        # Recuperation des donnees de cycles (MongoDB)
+        df_cycle_detail = generate_data_cycle(config)
+
+        data = get_listes_selecteur(df_cycle_detail)
+        data["combinaisons"] = get_combinaisons_selecteur(df_cycle_detail)
+
+        return jsonify(data)
+
+POURQUOI REMPLACER AUSSI LA CONSTRUCTION DES LISTES
+---------------------------------------------------
+Côté navigateur, l'interdépendance compare les valeurs des combinaisons aux
+libellés des cases à cocher. Si les deux ne sont pas produits exactement de la
+même façon, la comparaison échoue silencieusement et le filtre se vide.
+
+Le cas qui pose problème est la valeur manquante : avec `list(df[col].unique())`
+un NaN part en JSON `null` et devient le libellé "null" dans la page, alors
+qu'une conversion en chaîne côté combinaisons donnerait "nan". Les deux
+fonctions ci-dessous partagent donc la même normalisation.
+
+Tant que la clé "combinaisons" n'est pas renvoyée, visualisation.html
+fonctionne quand même : les cases restent décochées par défaut, seule
+l'interdépendance est inactive. Aucune régression possible.
 """
 
 # Correspondance entre le nom du sélecteur côté page (list_nom_selecteur dans
-# visualisation.html) et le nom du champ dans la collection MongoDB.
-# >>> À VÉRIFIER / AJUSTER selon le schéma réel de la collection <<<
-CHAMPS_SELECTEUR = {
-    "reference_article": "Reference_Article",
+# visualisation.html) et le nom de la colonne du DataFrame renvoyé par
+# generate_data_cycle().
+COLONNES_SELECTEUR = {
+    "reference_article": "Référence Article",
     "programme": "Programme",
     "fournisseur": "Fournisseur",
-    "categorie": "Categorie",
-    "sous_categorie": "Sous_Categorie",
+    "categorie": "Catégorie Technologique",
+    "sous_categorie": "Sous catégorie",
 }
 
 
-def get_combinaisons_selecteur(my_collection, champs=None):
+def _normaliser(df_cycle_detail, colonnes):
     """
-    Renvoie la liste des combinaisons de valeurs réellement présentes en base.
+    Sous-ensemble du DataFrame limité aux colonnes des sélecteurs, renommées
+    avec les noms attendus par la page et normalisées en chaînes.
+
+    C'est le point commun aux deux fonctions publiques : libellés des cases à
+    cocher et valeurs des combinaisons sortent d'ici, donc sont identiques.
+    """
+    manquantes = [col for col in colonnes.values() if col not in df_cycle_detail.columns]
+    if manquantes:
+        raise KeyError(
+            "Colonnes absentes du DataFrame des cycles : " + ", ".join(manquantes)
+        )
+
+    sous_df = df_cycle_detail[list(colonnes.values())].copy()
+    sous_df.columns = list(colonnes.keys())
+
+    for selecteur in sous_df.columns:
+        # fillna avant astype : sinon un NaN deviendrait la chaîne "nan"
+        sous_df[selecteur] = sous_df[selecteur].fillna("").astype(str).str.strip()
+
+    return sous_df
+
+
+def get_listes_selecteur(df_cycle_detail, colonnes=None, trier=True):
+    """
+    Listes de valeurs proposées par chaque sélecteur.
+
+    Remplace les `list(df[...].unique())` de la route : même résultat, mais
+    produit avec la normalisation partagée avec get_combinaisons_selecteur().
+
+    Parameters
+    ----------
+    df_cycle_detail : pandas.DataFrame
+        Sortie de generate_data_cycle(config).
+    colonnes : dict, optional
+        {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
+    trier : bool, optional
+        True (défaut) : valeurs triées par ordre alphabétique.
+        False : ordre d'apparition dans le DataFrame, comme `.unique()`.
+
+    Returns
+    -------
+    dict
+        {"reference_article": [...], "programme": [...], ...}
+    """
+    if colonnes is None:
+        colonnes = COLONNES_SELECTEUR
+
+    sous_df = _normaliser(df_cycle_detail, colonnes)
+
+    data = {}
+    for selecteur in colonnes:
+        valeurs = sous_df[selecteur].unique().tolist()
+        data[selecteur] = sorted(valeurs) if trier else valeurs
+
+    return data
+
+
+def get_combinaisons_selecteur(df_cycle_detail, colonnes=None):
+    """
+    Combinaisons de valeurs réellement présentes dans les données.
 
     Une seule entrée par n-uplet distinct, par exemple :
         [{"reference_article": "REF-A", "programme": "P1",
@@ -45,28 +124,19 @@ def get_combinaisons_selecteur(my_collection, champs=None):
 
     Parameters
     ----------
-    my_collection : pymongo.collection.Collection
-        Collection sur laquelle porte la page visualisation.
-    champs : dict, optional
-        Correspondance {nom_selecteur: champ_mongo}. CHAMPS_SELECTEUR par défaut.
+    df_cycle_detail : pandas.DataFrame
+        Sortie de generate_data_cycle(config).
+    colonnes : dict, optional
+        {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
 
     Returns
     -------
     list[dict]
-        Combinaisons distinctes, clés = noms des sélecteurs côté page.
+        Clés = noms des sélecteurs côté page.
     """
-    if champs is None:
-        champs = CHAMPS_SELECTEUR
+    if colonnes is None:
+        colonnes = COLONNES_SELECTEUR
 
-    pipeline = [
-        {"$group": {"_id": {sel: "$" + champ for sel, champ in champs.items()}}},
-        {"$replaceRoot": {"newRoot": "$_id"}},
-    ]
+    sous_df = _normaliser(df_cycle_detail, colonnes)
 
-    combinaisons = []
-    for doc in my_collection.aggregate(pipeline):
-        # Une valeur absente deviendrait None et ne correspondrait à aucune
-        # case à cocher : on la ramène à une chaîne vide
-        combinaisons.append({sel: (doc.get(sel) or "") for sel in champs})
-
-    return combinaisons
+    return sous_df.drop_duplicates().to_dict(orient="records")
