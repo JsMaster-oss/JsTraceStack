@@ -335,7 +335,10 @@
                 inputCheckBox.onclick = function () {maj_selecteur(); create_graph_analyse_CE2();};
 
                 var labelCheckBox = document.createElement('label')
-                labelCheckBox.innerHTML=option;
+                // textContent et non innerHTML : innerHTML ré-encode &, < et >
+                // à la relecture, le libellé renvoyé au serveur ne correspondrait
+                // alors plus à la valeur en base et le graphique sortirait vide
+                labelCheckBox.textContent = option;
                 labelCheckBox.setAttribute("for",inputCheckBox.id);
                 labelCheckBox.classList.add("filterDiv");
 
@@ -362,7 +365,7 @@
     function libelle_case(check)
     {
         var label = check.parentNode.querySelector('label');
-        return (label === null) ? "" : label.innerHTML;
+        return (label === null) ? "" : label.textContent;
     }
 
     // Cases à cocher d'un sélecteur
