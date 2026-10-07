@@ -2,668 +2,633 @@
 
 {% block content %}
 <div class="container block-content">
-    <link href="../static/css/visualisation.css" rel="stylesheet" type="text/css" media="all" xmlns="http://www.w3.org/1999/html">
+    <link href="../static/css/index_fiche.css" rel="stylesheet" type="text/css" media="all" xmlns="http://www.w3.org/1999/html">
+    <link href="../static/css/flash.css" rel="stylesheet" type="text/css" media="all" xmlns="http://www.w3.org/1999/html">
 
-    <div class="twothird">
+    <div class="twothird" >
         <div class="container card white margin-bottom">
-
-            <!-- ============================================================
-                 ATTENTION : la grille de cartes (.card-grid, #CardGraph1,
-                 #CardGraph2, #CardGraph3) n'apparaissait pas sur les captures
-                 ayant servi à reconstituer ce fichier. Reporter ici le bloc
-                 d'origine.
-                 ============================================================ -->
-
-            <div id="id_bloc_analyse_CE2">
-                <!-- <h5>Analyse des cycles équipements</h5> -->
-                <div class="container">
-                    <div class="surcharge-row justify-content" id="id_CE">
-
-                        <details class="interSection" >
-                            <summary>Référence Article</summary>
-                            <div class="dropdown_details_div longer_dropdown">
-                                <div class="fulfill_width">
-                                    <input type="text" onkeyup="filtrer(event)" id="id_filtre_reference_article">
-                                </div>
-                                <hr>
-                                <input type="checkbox" onclick="coche_decoche(event)" id="id_radio_reference_article">
-                                <label for="id_radio_reference_article">Tout cocher</label>
-                                <hr>
-                                <div class="radio" id="id_list_check_reference_article">
-                                </div>
-                            </div>
-                        </details>
-
-                        <details class="interSection" >
-                            <summary>Programme</summary>
-                            <div class="dropdown_details_div">
-                                <div class="fulfill_width">
-                                    <input type="text" onkeyup="filtrer(event)" id="id_filtre_programme">
-                                </div>
-                                <hr>
-                                <input type="checkbox" onclick="coche_decoche(event)" id="id_radio_programme">
-                                <label for="id_radio_programme">Tout cocher</label>
-                                <hr>
-                                <div class="radio" id="id_list_check_programme">
-                                </div>
-                            </div>
-                        </details>
-
-                        <details class="interSection">
-                            <summary>Fournisseur</summary>
-                            <div class="dropdown_details_div">
-                                <div class="fulfill_width">
-                                    <input type="text" onkeyup="filtrer(event)" id="id_filtre_fournisseur">
-                                </div>
-                                <hr>
-                                <input type="checkbox" onclick="coche_decoche(event)" id="id_radio_fournisseur">
-                                <label for="id_radio_fournisseur">Tout cocher</label>
-                                <hr>
-                                <div class="radio" id="id_list_check_fournisseur">
-                                </div>
-                            </div>
-                        </details>
-
-                        <details class="interSection">
-                            <summary>Catégorie</summary>
-                            <div class="dropdown_details_div">
-                                <div class="fulfill_width">
-                                    <input type="text" onkeyup="filtrer(event)" id="id_filtre_categorie">
-                                </div>
-                                <hr>
-                                <input type="checkbox" onclick="coche_decoche(event)" id="id_radio_categorie">
-                                <label for="id_radio_categorie">Tout cocher</label>
-                                <hr>
-                                <div class="radio" id="id_list_check_categorie">
-                                </div>
-                            </div>
-                        </details>
-
-                        <details class="interSection">
-                            <summary>Sous catégorie</summary>
-                            <div class="dropdown_details_div">
-                                <div class="fulfill_width">
-                                    <input type="text" onkeyup="filtrer(event)" id="id_filtre_sous_categorie">
-                                </div>
-                                <hr>
-                                <input type="checkbox" onclick="coche_decoche(event)" id="id_radio_sous_categorie">
-                                <label for="id_radio_sous_categorie">Tout cocher</label>
-                                <hr>
-                                <div class="radio" id="id_list_check_sous_categorie">
-                                </div>
-                            </div>
-                        </details>
-
-                        <div class="form-check form-switch interSection">
-                            <input class="form-check-input" type="checkbox" onclick="create_graph_analyse_CE2()" id="id_radio_ordonner_CE">
-                            <label class="form-check-label" for="id_radio_ordonner_CE">Cycles ordonnés</label>
-                        </div>
-                    </div>
-                </div>
-                <!-- Graphique analyse des cycles equipements -->
-                <div id="plotly_graph_analyse_CE2"></div>
+            <hr>
+            <h3 class="text-grey padding-16" style="text-align: center;"> {% block title %}Gestionnaire des fiches de recensement{% endblock %}</h3>
+            <hr>
+            {% if current_user.role != "Reader" %}
+            <div class="div_new_fiche">
+                <button name="btn_new_fiche" id="id_btn_new_fiche" class="create btn btn-secondary" onclick="new_fiche()"> Créer une nouvelle fiche </button>
             </div>
-
-            <div id="id_bloc_analyse_CCC" style="display : none;">
-                <!-- <h5>Analyse des cycles en cascade cyclée</h5> -->
-                <div class="container">
-                    <div class="surcharge-row justify-content" id="id_CCC">
-                        <select name="designation_article" class="interSection" id="id_select_designation_article" required>
-                            <option value="" selected="selected">Sélection d'une désignation article</option>
-                        </select>
-                        <div class="form-check form-switch interSection">
-                            <input class="form-check-input" type="checkbox" onclick="create_graph_analyse_CCC()" id="id_radio_ordonner_CCC">
-                            <label class="form-check-label" for="id_radio_ordonner_CCC">Cycles ordonnés</label>
-                        </div>
-                    </div>
-                </div>
-                <!-- Graphique analyse des cycles en cascade cyclée -->
-                <div id="plotly_graph_analyse_CCC" class="my_scroll_div"></div>
+            {% endif %}
+            <div class="my_scroll_div" id="id_div_liste_fiche">
             </div>
-
-            <div id="id_bloc_analyse_PLT">
-                <!-- Graphique analyse des cycles equipements -->
-                <div id="plotly_graph_analyse_PLT" class="pas-de-graphique">Graphique bientôt disponible</div>
-            </div>
+            <hr>
 
         </div>
+
+        <!-- Modal -->
+        <div class="modal fade" id="id_modal_dialogue" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="id_modal_dialogue_title"></h5>
+                        <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div id="id_modal_dialogue_text" class="modal-body"></div>
+                    <div class="modal-footer" id="id_modal_dialogue_footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Ok</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-error" class="modal fade" role="dialog">
+            <div class="modal-dialog">
+
+                <!-- Modal content-->
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h4 class="modal-title">Accès refusé</h4>
+                        <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        {% with messages = get_flashed_messages() %}
+                        {% if messages %}
+                        <ul class=flashes>
+                            {% for message in messages %}
+                            <li>{{ message }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% endwith %}
+                    </div>
+                    <div class="modal-footer" id="id_modal_dialogue_footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Ok</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
     </div>
 </div>
-
 <script src="{{ url_for('static', filename= 'bootstrap/js/bootstrap.bundle.min.js') }}"></script>
-<script src="{{ url_for('static', filename= 'js/plotly-latest.min.js') }}"></script>
 <script src="{{ url_for('static', filename= 'js/ajax.js') }}"></script>
 <script src="{{ url_for('static', filename= 'js/Flash/flash.js') }}"></script>
 
 <script type="text/javascript">
 
-    var list_nom_selecteur = ["reference_article", "programme","fournisseur","categorie","sous_categorie"];
+    var list_attribut = [{"nom":"Désignation Article","attribut":"Designation_Article","type":"texte"},
+                         {"nom":"Référence Article","attribut":"Reference_Article","type":"texte"},
+                         {"nom":"Programme","attribut":"Programme","type":"texte"},
+                         {"nom":"Catégorie Technologique","attribut":"Categorie_Technologique","type":"texte"},
+                         {"nom":"Auteur","attribut":"Auteur","type":"texte"},
+                      // {"nom":"Date de dernière mise à jour","attribut":"DateCreation","type":"date"},
+                         {"nom":"Date de validité","attribut":"Date_Validite_Cycle_Contractuel_Equipementiers","type":"date"}];
+                      // {"nom":"Version","attribut":"Version","type":"texte"}];
 
-    /* Combinaisons de valeurs réellement présentes en base, renvoyées par
-       /get_data_selecteur sous la clé "combinaisons". Sert à rendre les
-       sélecteurs interdépendants. Si le serveur ne la renvoie pas encore,
-       la liste reste vide et l'interdépendance est simplement inactive. */
-    var list_combinaison = [];
+    function new_fiche()
+    {
+        window.open("{{ url_for('main.formulaire_fiche') }}","_self");
+    }
 
-    // Variables for cards page
-    let count = 0;
-    const grid = $(".card-grid");
-    const cardGraph1 = $('#CardGraph1');
-    const pageGraph1 = $('container card white margin-bottom');
-    const cardGraph2 = $('#CardGraph2');
-    const cardGraph3 = $('#CardGraph3');
-    let numPageGraph = 1;
-
-    window.onload = function(){
-
-        $('.card-grid .graph-card').each(function() {
-            count++;
-        });
-
-        switch (count) {
-            case 2:
-                addClassToGraph("extend");
-                break;
-            case 4:
-                addClassToGraph("longue");
-                break;
-            default:
-                break;
-        }
-
-        // Redirects to the first graphic page
-        cardGraph1.on("click", function () {
-            grid.css("display", "none");
-            pageGraph1.css("display", "flex");
-            numPageGraph = 1;
-            createGraphPage(numPageGraph);
-        });
-
-        // Redirects to the second graphic page
-        cardGraph2.on("click", function () {
-            grid.css("display", "none");
-            pageGraph1.css("display", "flex");
-            numPageGraph = 2;
-            createGraphPage(numPageGraph);
-        });
-
-        // Redirects to the third graphic page
-        cardGraph3.on("click", function () {
-            grid.css("display", "none");
-            pageGraph1.css("display", "flex");
-            numPageGraph = 3;
-            createGraphPage(numPageGraph);
-        });
-
-        // When in the graphic page, this function is used when going from comparaison to scénario.
-        // It resets activité and produits filters to avoid having an error according to the filters
-        $("#btn-group-nav-graphique").on("change", "#btn-vue-graphique-1", function() {
-            numPageGraph = 1;
-
-            changeGraph(numPageGraph);
-        });
-
-        // When in the graphic page, this function is used when going from comparaison to scénario.
-        // It resets activité and produits filters to avoid having an error according to the filters
-        $("#btn-group-nav-graphique").on("change", "#btn-vue-graphique-2", function() {
-            numPageGraph = 2;
-
-            changeGraph(numPageGraph);
-        });
-
-        // When in the graphic page, this function is used when going from comparaison to scénario.
-        // It resets activité and produits filters to avoid having an error according to the filters
-        $("#btn-group-nav-graphique").on("change", "#btn-vue-graphique-3", function() {
-            numPageGraph = 3;
-
-            changeGraph(numPageGraph);
-        });
-
-        var server_data = {"msg": "init_selecteur"};
-
-        showAnalyseCE2 = function () {
-            document.getElementById("id_bloc_analyse_CE2").style.display  = "inline";
-            document.getElementById("id_bloc_analyse_CCC").style.display = "none";
-            document.getElementById("id_bloc_analyse_PLT").style.display = "none";
-            var selectEmpty = document.getElementById("id_list_check_programme");
-            $.ajax({
-                    type: "POST",
-                    url: "/get_data_selecteur",
-                    data: JSON.stringify(server_data),
-                    contentType: "application/json",
-                    dataType: 'json'
-                    }).done(function(data){
-                        if (selectEmpty.childElementCount <= 0) {
-                            init_selecteur(data);
-                            create_graph_analyse_CE2();
-                        } else {
-                            create_graph_analyse_CE2();
-                        }
-                    });
-        }
-
-        server_data = {"msg": "demande_list_designation_article"};
+    window.onload = function()
+    {
+        var server_data_list = {"msg": "init_index_fiche"};
+        create_table();
 
         $.ajax({
-                type: "POST",
-                url: "/get_list_designation_article",
-                data: JSON.stringify(server_data),
-                contentType: "application/json",
-                dataType: 'json'
-                }).done(function(data){
+            type: "POST",
+            url: "/get_liste_fiche",
+            data: JSON.stringify(server_data_list),
+            contentType: "application/json",
+            dataType: 'json'
+        }).done(function(data){
 
-                    var select_designation_article = document.getElementById("id_select_designation_article");
-
-                    for (designation_article of data["list_designation_article"]){
-                        var opt = document.createElement('option');
-                        opt.value = designation_article;
-                        opt.innerHTML = designation_article;
-                        select_designation_article.appendChild(opt);
-                    }
-
-                });
-
-        select_designation_article=document.getElementById("id_select_designation_article");
-
-        select_designation_article.onchange = function(e){
-            e.preventDefault();
-            create_graph_analyse_CCC();
-        };
-
+            // Récupérer les fiches avec les versions les plus hautes
+            let highestFiches = highest_version_fiches(data["liste_fiche"]);
+            for(var fiche of highestFiches)
+            {
+                create_item_fiche(fiche);
+            };
+            init_filter();
+        });
     }
 
-    showAnalyseCCC = function(){
-        document.getElementById("id_bloc_analyse_CE2").style.display  = "none";
-        document.getElementById("id_bloc_analyse_CCC").style.display = "inline";
-        document.getElementById("id_bloc_analyse_PLT").style.display = "none";
-    };
+    function create_item_fiche(fiche)
+    {
+        var idFiche = fiche["_id"];
 
-    showAnalysePLT = function(){
-        document.getElementById("id_bloc_analyse_CE2").style.display  = "none";
-        document.getElementById("id_bloc_analyse_CCC").style.display = "none";
-        document.getElementById("id_bloc_analyse_PLT").style.display = "inline";
-    };
+        var ligneTable = document.createElement('tr');
 
-    /* ==================================================================
-       SÉLECTEURS À CASES À COCHER
+        ligneTable.setAttribute("id_fiche",idFiche);
 
-       Deux principes :
-
-       1. Aucune case cochée sur un sélecteur = AUCUNE contrainte.
-          Au chargement rien n'est coché et le graphique porte donc sur
-          l'ensemble des données. L'utilisateur coche ce qu'il veut voir
-          au lieu de décocher ce qu'il ne veut pas.
-
-       2. Les sélecteurs sont INTERDÉPENDANTS : chaque sélecteur ne propose
-          que les valeurs encore compatibles avec les choix faits sur les
-          AUTRES sélecteurs. Le sélecteur lui-même est exclu du calcul, ses
-          valeurs restent donc toutes affichées, ce qui permet d'élargir sa
-          propre sélection.
-
-       Le navigateur ne détient pas les données (c'est le serveur qui
-       construit le graphique) : l'interdépendance s'appuie sur
-       list_combinaison, fournie par /get_data_selecteur.
-       ================================================================== */
-
-    init_selecteur = function(data){
-
-        // Combinaisons existantes (absentes => interdépendance inactive)
-        list_combinaison = data["combinaisons"] || [];
-
-        for(selecteur of list_nom_selecteur)
+        for(attr of list_attribut)
         {
-            var divRadio = document.getElementById("id_list_check_"+selecteur);
-
-            if(divRadio === null) { continue; }
-
-            var list_option = data[selecteur] || [];
-
-            divRadio.innerHTML = "";
-
-            var fieldset = document.createElement('fieldset')
-            fieldset.className = "scroll_selecteur"
-
-            for(option of list_option)
-            {
-                var divCheckBox = document.createElement('div');
-
-                var inputCheckBox = document.createElement('input');
-                inputCheckBox.type = "checkbox";
-                inputCheckBox.id = "id_checkbox_"+selecteur+"_"+option
-                // Décoché par défaut : aucune contrainte, tout est pris en compte
-                inputCheckBox.checked = false
-                inputCheckBox.onclick = function () {maj_selecteur(); create_graph_analyse_CE2();};
-
-                var labelCheckBox = document.createElement('label')
-                // textContent et non innerHTML : innerHTML ré-encode &, < et >
-                // à la relecture, le libellé renvoyé au serveur ne correspondrait
-                // alors plus à la valeur en base et le graphique sortirait vide
-                labelCheckBox.textContent = option;
-                labelCheckBox.setAttribute("for",inputCheckBox.id);
-                labelCheckBox.classList.add("filterDiv");
-
-                divCheckBox.appendChild(inputCheckBox)
-                divCheckBox.appendChild(labelCheckBox)
-
-                fieldset.appendChild(divCheckBox)
-            }
-            divRadio.appendChild(fieldset)
-
-            var inputCoche = document.getElementById("id_radio_"+selecteur);
-            if(inputCoche !== null) { inputCoche.checked = false; }
-
-            // On repart d'une recherche vide, sinon un texte résiduel
-            // masquerait des valeurs de la liste fraîchement reconstruite
-            var inputRecherche = document.getElementById("id_filtre_"+selecteur);
-            if(inputRecherche !== null) { inputRecherche.value = ""; }
+            var cell = document.createElement('td');
+            // textContent et non innerHTML : innerHTML ré-encode &, < et >
+            // à la relecture, la valeur de la cellule ne correspondrait alors
+            // plus au libellé de la case à cocher et la ligne serait masquée
+            cell.textContent = fiche[attr.attribut];
+            cell.className=attr.attribut
+            ligneTable.appendChild(cell)
         }
 
-        maj_selecteur();
+        var cellV = document.createElement('td');
+        cellV.innerHTML = fiche["Version"];
+        ligneTable.appendChild(cellV)
+
+        var cellU = document.createElement('td');
+        cellU.innerHTML = "";
+        ligneTable.appendChild(cellU)
+
+        cellU.id = "id_"+idFiche+"_option"
+
+        var btnView = document.createElement('button');
+        btnView.innerHTML = "<i class='fa fa-eye'></i>";
+        btnView.className = "btnOption";
+        btnView.title="Voir";
+        cellU.appendChild(btnView);
+
+        btnView.onclick = function()
+        {
+            var mode = "view"
+            window.open("{{url_for('main.formulaire_fiche')}}?idFiche="+idFiche+"&mode="+mode, "_self");
+        };
+        // Syntaxe erreur mais fonctionnement OK
+        {% if current_user.role != "Reader" %}
+
+        var btnModify = document.createElement('button');
+        btnModify.innerHTML = "<i class='fa fa-pencil-square-o'></i>"
+        btnModify.className = "btnOption"
+        btnModify.title="Modifier"
+        cellU.appendChild(btnModify)
+
+        btnModify.onclick = function()
+        {
+            var mode = "modify"
+            window.open("{{url_for('main.formulaire_fiche')}}?idFiche="+idFiche+"&mode="+mode, "_self");
+        };
+
+        var aDownload = document.createElement('a');
+        aDownload.innerHTML = "<i class='fa fa-download'></i>";
+        aDownload.title="Charger"
+        aDownload.href="{{url_for('main.charger_data_fiche',idFiche='')}}"+idFiche
+        cellU.appendChild(aDownload)
+
+        var btnDelete = document.createElement('button');
+        btnDelete.innerHTML = "<i class='fa fa-trash'></i>";
+        btnDelete.className = "btnOption"
+        btnDelete.title="Supprimer"
+        cellU.appendChild(btnDelete)
+
+        btnDelete.onclick = function()
+        {
+            document.getElementById("id_modal_dialogue_title").innerHTML = "Supprimer la fiche ?";
+            document.getElementById("id_modal_dialogue_text").innerHTML = "";
+
+            var text = "Voulez vous supprimer cette fiche ?"
+
+            document.getElementById("id_modal_dialogue_text").innerHTML = text
+
+            document.getElementById("id_modal_dialogue_footer").innerHTML="";
+
+            var btnAnnuler = document.createElement('button');
+            btnAnnuler.className = "btn btn-secondary";
+            btnAnnuler.innerHTML = "Annuler";
+            document.getElementById("id_modal_dialogue_footer").appendChild(btnAnnuler);
+
+            btnAnnuler.onclick = function()
+            {
+                $("#id_modal_dialogue").modal("hide");
+            };
+
+            var btnSupprimer = document.createElement('button');
+            btnSupprimer.className = "btn btn-primary";
+            btnSupprimer.innerHTML = "Supprimer";
+            document.getElementById("id_modal_dialogue_footer").appendChild(btnSupprimer);
+
+            btnSupprimer.onclick = function()
+            {
+                var div_spinner_upload = document.createElement('div');
+                div_spinner_upload.className = "spinner-border";
+                document.getElementById("id_modal_dialogue_footer").appendChild(div_spinner_upload);
+
+                var data_fiche = {"id_fiche" : idFiche};
+
+                $.ajax({type: "POST",
+                    url: "/supprimer_fiche",
+                    data: JSON.stringify(data_fiche),
+                    contentType: "application/json",
+                    dataType: 'json'
+                }).done(function(data)
+                {
+                    var body = document.getElementById("id_table_body")
+
+                    body.querySelector('[id_fiche="'+idFiche+'"]').remove()
+
+                    $("#id_modal_dialogue").modal("hide");
+                });
+            };
+            $("#id_modal_dialogue").modal("show");
+        };
+        // Syntaxe erreur mais fonctionnement OK
+        {% endif %}
+
+        document.getElementById("id_table_body").appendChild(ligneTable)
     }
 
-    // Libellé associé à une case à cocher
-    function libelle_case(check)
+    function create_table()
     {
-        var label = check.parentNode.querySelector('label');
-        return (label === null) ? "" : label.textContent;
+        var tableFiche = document.createElement('table');
+        tableFiche.className = "table"
+
+        var headTable = document.createElement('thead');
+        headTable.className = "fixed-header";
+        headTable.id = "id_head_table"
+        tableFiche.appendChild(headTable)
+
+        var headLigne = document.createElement('tr');
+        headTable.appendChild(headLigne)
+
+        var bodyTable = document.createElement('tbody');
+        bodyTable.id = "id_table_body"
+        tableFiche.appendChild(bodyTable)
+
+        for(attr of list_attribut)
+        {
+            var cell = document.createElement('td');
+            cell.className="filter dropdown_td_body"
+            cell.attributFilter=attr.attribut
+            cell.setAttribute("attributFilter",attr.attribut);
+            cell.typeFilter=attr.type
+            headLigne.appendChild(cell)
+            if(attr.type=="texte")
+            {
+                cell.appendChild(createSelecteurText(attr.nom));
+            }
+            else
+            {
+                cell.appendChild(createSelecteurDate(attr.nom));
+            }
+        }
+
+        var cellV = document.createElement('td');
+        cellV.innerHTML = "Version";
+        cellV.className = "small_col";
+        headLigne.appendChild(cellV)
+
+        var cellU = document.createElement('td');
+        cellU.innerHTML = "Usage";
+        cellU.className = "small_col";
+        headLigne.appendChild(cellU)
+
+        document.getElementById("id_div_liste_fiche").appendChild(tableFiche)
+
     }
 
-    // Cases à cocher d'un sélecteur
-    function cases_selecteur(selecteur)
+    function createSelecteurText(name)
     {
-        var divRadio = document.getElementById("id_list_check_"+selecteur);
-        return (divRadio === null) ? [] : divRadio.querySelectorAll('input[type="checkbox"]');
+        var detail = document.createElement('details')
+
+        var summary = document.createElement('summary')
+        summary.innerHTML = name;
+        detail.appendChild(summary);
+
+        var dropdownDivContainer = document.createElement('div')
+        dropdownDivContainer.className="dropdown_div_filter"
+
+        var textInputDiv = document.createElement('div');
+        textInputDiv.className = "fulfill_width";
+
+        var input = document.createElement('input')
+        input.type="text"
+        input.onkeyup = function ()
+        {
+            // La recherche texte agit à la fois sur les lignes du tableau et sur
+            // la liste des cases à cocher : tout est recalculé dans filtrage_table()
+            filtrage_table();
+        };
+        textInputDiv.appendChild(input);
+        dropdownDivContainer.appendChild(textInputDiv);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var inputCoche = document.createElement('input')
+        inputCoche.type="checkbox"
+        inputCoche.id="id_"+name+"_coche"
+        inputCoche.checked = false
+        inputCoche.onclick = function()
+        {
+            // Coche / décoche uniquement les valeurs actuellement visibles
+            // (donc compatibles avec les autres filtres)
+            for (box of this.parentNode.querySelector('div.radio').querySelectorAll('input'))
+            {
+                if(box.parentNode.style.display != "none")
+                {
+                    box.checked = this.checked
+                }
+            }
+            filtrage_table();
+        };
+
+        var labelCoche = document.createElement('label')
+        labelCoche.innerHTML="Tout cocher";
+        labelCoche.setAttribute("for", inputCoche.id);
+
+        dropdownDivContainer.appendChild(inputCoche);
+        dropdownDivContainer.appendChild(labelCoche);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var listCheckBox = document.createElement('div')
+        listCheckBox.className="radio"
+        dropdownDivContainer.appendChild(listCheckBox);
+
+        detail.appendChild(dropdownDivContainer);
+
+        return detail
     }
 
-    // Lit l'état courant de chaque sélecteur
-    function etat_selecteur()
+    function createSelecteurDate(name)
     {
+        var detail = document.createElement('details')
+
+        var summary = document.createElement('summary')
+        summary.innerHTML = name;
+        detail.appendChild(summary);
+
+        var dropdownDivContainer = document.createElement('div')
+        dropdownDivContainer.className="dropdown_div_filter"
+
+        var input_inf = document.createElement('input')
+        input_inf.type="date"
+        input_inf.onchange = function () {filtrage_table()};
+        dropdownDivContainer.appendChild(input_inf);
+
+        dropdownDivContainer.appendChild(document.createElement('hr'));
+
+        var input_sup = document.createElement('input')
+        input_sup.type="date"
+        input_sup.onchange = function () {filtrage_table()};
+        dropdownDivContainer.appendChild(input_sup);
+
+        detail.appendChild(dropdownDivContainer);
+
+        return detail
+    }
+
+    /* ------------------------------------------------------------------
+       FILTRAGE
+       - Aucune case cochée sur une colonne = aucune contrainte sur cette
+         colonne (toutes les valeurs sont donc affichées par défaut).
+       - Les filtres sont interdépendants : la liste des valeurs proposées
+         par une colonne est calculée sur les lignes qui passent TOUS les
+         autres filtres (la colonne elle-même étant exclue du calcul, ses
+         valeurs restent donc toutes visibles).
+       ------------------------------------------------------------------ */
+
+    // Lit l'état courant de chaque filtre de l'entête
+    function get_etat_filtres()
+    {
+        var head = document.getElementById("id_head_table")
         var etats = []
 
-        for(selecteur of list_nom_selecteur)
+        for(filter of head.querySelectorAll("td.filter"))
         {
-            var coches = []
-            for(check of cases_selecteur(selecteur))
+            var etat = {element: filter,
+                        attribut: filter.getAttribute("attributFilter"),
+                        type: filter.typeFilter}
+
+            if(filter.typeFilter=="texte")
             {
-                if(check.checked) { coches.push(libelle_case(check)); }
+                etat.recherche = filter.querySelector('input[type="text"]').value.toUpperCase()
+
+                etat.coches = []
+                for(check of filter.querySelectorAll('div.radio input[type="checkbox"]:checked'))
+                {
+                    etat.coches.push(check.parentNode.querySelector('label').textContent)
+                }
+            }
+            else
+            {
+                var dates = filter.querySelectorAll('input[type="date"]');
+
+                etat.dateInf = (dates[0].value === "") ? null : new Date(dates[0].value).getTime()
+                etat.dateSup = (dates[1].value === "") ? null : new Date(dates[1].value).getTime()
             }
 
-            var inputRecherche = document.getElementById("id_filtre_"+selecteur);
-
-            etats.push({nom: selecteur,
-                        coches: coches,
-                        recherche: (inputRecherche === null) ? "" : inputRecherche.value.toUpperCase()})
+            etats.push(etat)
         }
         return etats
     }
 
-    /* La combinaison passe-t-elle tous les filtres sauf celui d'indice
-       ignore ? C'est ce paramètre qui produit l'interdépendance :
-         ignore = -1 → tous les sélecteurs s'appliquent
-         ignore = i  → le sélecteur i est mis de côté, ce qui donne les
-                       valeurs qu'il a encore le droit de proposer        */
-    function combinaison_valide(combi, etats, ignore)
+    // Valeur de la cellule d'une ligne pour un attribut donné
+    function valeur_cellule(row, attribut)
+    {
+        var cell = row.querySelector("td."+attribut)
+        return (cell === null) ? "" : cell.textContent
+    }
+
+    // Une valeur passe-t-elle le filtre d'une colonne ?
+    function valeur_valide(valeur, etat)
+    {
+        if(etat.type=="texte")
+        {
+            if (valeur.toUpperCase().indexOf(etat.recherche) == -1)
+            {
+                return false
+            }
+
+            // Aucune case cochée => pas de contrainte sur cette colonne
+            if (etat.coches.length > 0 && etat.coches.indexOf(valeur) == -1)
+            {
+                return false
+            }
+            return true
+        }
+        else
+        {
+            var date = new Date(valeur).getTime();
+
+            if (isNaN(date))
+            {
+                return (etat.dateInf === null) && (etat.dateSup === null)
+            }
+
+            if ((etat.dateInf !== null) && (date < etat.dateInf))
+            {
+                return false
+            }
+
+            if ((etat.dateSup !== null) && (etat.dateSup < date))
+            {
+                return false
+            }
+            return true
+        }
+    }
+
+    // La ligne passe-t-elle tous les filtres (hors celui d'indice ignore) ?
+    function ligne_valide(row, etats, ignore)
     {
         for(var i = 0; i < etats.length; i++)
         {
-            if(i === ignore) { continue; }
+            if(i === ignore)
+            {
+                continue;
+            }
 
-            // Aucune case cochée => pas de contrainte sur ce sélecteur
-            if(etats[i].coches.length === 0) { continue; }
-
-            if(etats[i].coches.indexOf(combi[etats[i].nom]) === -1) { return false; }
+            if(!valeur_valide(valeur_cellule(row, etats[i].attribut), etats[i]))
+            {
+                return false
+            }
         }
         return true
     }
 
-    // Met à jour les valeurs proposées par chaque sélecteur
-    function maj_selecteur()
+    function filtrage_table()
     {
-        var etats = etat_selecteur();
+        var body = document.getElementById("id_table_body")
+        var rows = body.querySelectorAll("tr")
 
-        for(var i = 0; i < list_nom_selecteur.length; i++)
+        var etats = get_etat_filtres()
+
+        // 1 - Affichage des lignes
+        for(row of rows)
         {
-            var selecteur = list_nom_selecteur[i];
+            row.style.display = ligne_valide(row, etats, -1) ? "" : "none";
+        }
 
-            // Valeurs encore possibles compte tenu des AUTRES sélecteurs.
-            // null = interdépendance indisponible (pas de combinaisons)
-            var dispo = null;
-
-            if(list_combinaison.length > 0)
+        // 2 - Mise à jour des valeurs proposées par chaque filtre texte,
+        //     en fonction des autres filtres (interdépendance)
+        for(var i = 0; i < etats.length; i++)
+        {
+            if(etats[i].type != "texte")
             {
-                dispo = new Set();
-                for(var k = 0; k < list_combinaison.length; k++)
+                continue;
+            }
+
+            var valeurs_dispo = new Set()
+            for(row of rows)
+            {
+                if(ligne_valide(row, etats, i))
                 {
-                    if(combinaison_valide(list_combinaison[k], etats, i))
+                    valeurs_dispo.add(valeur_cellule(row, etats[i].attribut))
+                }
+            }
+
+            for(check of etats[i].element.querySelectorAll('div.radio input[type="checkbox"]'))
+            {
+                var labelTxt = check.parentNode.querySelector('label').textContent
+
+                // On garde visible une valeur cochée même si elle n'est plus
+                // proposée, sinon l'utilisateur ne pourrait plus la décocher
+                var dispo = valeurs_dispo.has(labelTxt) || check.checked
+
+                // La zone de recherche texte filtre aussi la liste des valeurs
+                var trouve = labelTxt.toUpperCase().indexOf(etats[i].recherche) != -1
+
+                check.parentNode.style.display = (dispo && trouve) ? "" : "none"
+            }
+
+            // "Tout cocher" reflète l'état des valeurs visibles
+            var coche_tout = etats[i].element.querySelector('div.dropdown_div_filter > input[type="checkbox"]')
+            if(coche_tout !== null)
+            {
+                var visibles = 0
+                var cochees = 0
+                for(check of etats[i].element.querySelectorAll('div.radio input[type="checkbox"]'))
+                {
+                    if(check.parentNode.style.display != "none")
                     {
-                        dispo.add(list_combinaison[k][selecteur]);
+                        visibles++;
+                        if(check.checked)
+                        {
+                            cochees++;
+                        }
                     }
                 }
+                coche_tout.checked = (visibles > 0) && (visibles == cochees)
             }
+        }
+    }
 
-            var visibles = 0;
-            var cochees = 0;
+    function init_filter()
+    {
+        var head = document.getElementById("id_head_table")
+        var body = document.getElementById("id_table_body")
 
-            for(check of cases_selecteur(selecteur))
+        list_filter = head.querySelectorAll("td.filter")
+
+        for(filter of list_filter)
+        {
+            if(filter.typeFilter=="texte")
             {
-                var txt = libelle_case(check);
+                list_cell = body.querySelectorAll("td."+filter.attributFilter);
 
-                // Une valeur cochée reste visible même si elle n'est plus
-                // proposée, sinon il deviendrait impossible de la décocher
-                var compatible = (dispo === null) || dispo.has(txt) || check.checked;
+                // Valeurs distinctes, triées comme sur la page visualisation :
+                // ordre alphabétique français, insensible à la casse et aux
+                // accents (localeCompare), et non l'ordre d'apparition
+                list_word = Array.from(new Set(Array.from(list_cell, x => x.textContent)))
+                                 .sort(function(a, b) { return a.localeCompare(b, 'fr'); });
 
-                // La recherche ne filtre QUE la liste affichée,
-                // elle n'a aucun effet sur le graphique
-                var trouve = txt.toUpperCase().indexOf(etats[i].recherche) !== -1;
+                divRadio = filter.querySelector("div.radio");
 
-                var affiche = compatible && trouve;
-                check.parentNode.style.display = affiche ? "" : "none";
-
-                if(affiche)
+                var fieldset = document.createElement('fieldset')
+                fieldset.className = "scroll_filter"
+                for(word of list_word)
                 {
-                    visibles++;
-                    if(check.checked) { cochees++; }
+                    var divCheckBox = document.createElement('div');
+                    var labelCheckBox = document.createElement('label');
+                    var inputCheckBox = document.createElement('input');
+
+                    inputCheckBox.type = "checkbox";
+                    // Par défaut aucune valeur n'est cochée : aucune contrainte,
+                    // toutes les lignes et toutes les valeurs restent affichées
+                    inputCheckBox.checked = false;
+                    inputCheckBox.id = word;
+                    inputCheckBox.name = word;
+                    inputCheckBox.onclick = function () {filtrage_table()};
+
+                    labelCheckBox.setAttribute("for", inputCheckBox.id)
+                    labelCheckBox.textContent = word;
+
+                    divCheckBox.appendChild(inputCheckBox)
+                    divCheckBox.appendChild(labelCheckBox)
+                    fieldset.appendChild(divCheckBox)
                 }
-            }
-
-            // "Tout cocher" reflète l'état des valeurs réellement visibles
-            var inputCoche = document.getElementById("id_radio_"+selecteur);
-            if(inputCoche !== null)
-            {
-                inputCoche.checked = (visibles > 0) && (visibles === cochees);
+                divRadio.appendChild(fieldset)
             }
         }
+
+        filtrage_table();
     }
 
-    /* Données envoyées au serveur.
-       Rien de coché sur un sélecteur = aucune contrainte : on envoie alors
-       toutes ses valeurs, ce qui évite de modifier la route. Quand la route
-       saura traiter une liste vide comme "pas de filtre", il suffira de
-       supprimer le bloc marqué ci-dessous.                                */
-    function contrainte_selecteur()
-    {
-        var server_data = {};
+    function highest_version_fiches(data) {
+        let fiches = data;
 
-        for(selecteur of list_nom_selecteur)
-        {
-            var liste_cases = cases_selecteur(selecteur);
+        // Trier les fiches par désignation et par version
+        fiches.sort((a, b) => a["Designation_Article"].localeCompare(b["Designation_Article"]) || b["Version"] - a["Version"]);
 
-            var coches = [];
-            for(check of liste_cases)
-            {
-                if(check.checked) { coches.push(libelle_case(check)); }
-            }
-
-            // --- bloc à supprimer le jour où la route gère la liste vide ---
-            if(coches.length === 0)
-            {
-                for(check of liste_cases) { coches.push(libelle_case(check)); }
-            }
-            // ---------------------------------------------------------------
-
-            server_data[selecteur] = coches;
-        }
-        return server_data;
-    }
-
-    create_graph_analyse_CE2 = function()
-    {
-        var server_data = contrainte_selecteur();
-
-        server_data["b_ordonner"] = document.getElementById("id_radio_ordonner_CE").checked
-
-        var div_spinner_upload = document.createElement('div');
-        div_spinner_upload.className = "spinner-border";
-        document.getElementById("id_CE").appendChild(div_spinner_upload);
-
-        $.ajax({
-                type: "POST",
-                url: "/create_graph_analyse_CE2",
-                data: JSON.stringify(server_data),
-                contentType: "application/json",
-                dataType: 'json'
-                }).done(function(data){
-                    var graph = JSON.parse(data["graph"])
-                    graph.config={displaylogo: false, responsive: true}
-                    Plotly.newPlot("plotly_graph_analyse_CE2", graph, {});
-                    document.getElementById("id_CE").removeChild(div_spinner_upload);
-                });
-    }
-
-    create_graph_analyse_CCC = function()
-    {
-        var select_designation_article = document.getElementById("id_select_designation_article")
-
-        if(select_designation_article.value!="")
-        {
-            var server_data = {"designation_article": select_designation_article.value};
-
-            server_data["b_ordonner"] = document.getElementById("id_radio_ordonner_CCC").checked
-
-            var div_spinner_upload = document.createElement('div');
-            div_spinner_upload.className = "spinner-border";
-            document.getElementById("id_CCC").appendChild(div_spinner_upload);
-
-            $.ajax({
-                    type: "POST",
-                    url: "/create_graph_analyse_CCC2",
-                    data: JSON.stringify(server_data),
-                    contentType: "application/json",
-                    dataType: 'json'
-                    }).done(function(data){
-                        var graph = JSON.parse(data["graph"])
-                        graph.config={displaylogo: false, responsive: true}
-                        Plotly.newPlot("plotly_graph_analyse_CCC", graph, {})
-                        document.getElementById('plotly_graph_analyse_CCC').on('plotly_legendclick', function(eventData) {
-                            clickedTrace = eventData.fullData[eventData.curveNumber]
-                            clickedTraceName = clickedTrace.name
-                            if (clickedTrace.visible === 'legendonly') {
-                                clickedTrace.visible = true
-                            } else if (clickedTrace.visible === true) {
-                                clickedTrace.visible = 'legendonly'
-                            }
-                            const traceVisibility = {};
-                            eventData.fullData.forEach(trace => {
-                                traceVisibility[trace.name] = trace.visible
-                            })
-
-                            const tracesInfo = [];
-                            allData = eventData.fullData
-                            for (let i = 0; i < allData.length; i++) {
-                                const trace = allData[i]
-                                const traceInfo = {
-                                    name: trace.name,
-                                    visible: traceVisibility[trace.name]
-                                };
-                                tracesInfo.push(traceInfo)
-                            }
-
-                            // Déclaration des variables pour conserver l'affichage après le clic
-                            var xRange, yRange;
-
-                            // Sauvegarde de l'emplacement d'affichage actuel
-                            var layout = eventData.layout;
-                            xRange = layout.xaxis.range;
-                            yRange = layout.yaxis.range;
-
-                            // Importation dans le layout de l'ancien affichage
-                            layout.xaxis.range = xRange;
-                            layout.yaxis.range = yRange;
-
-                            $.ajax({
-                                url: '/update_graph',
-                                method:'POST',
-                                contentType:'application/json',
-                                data: JSON.stringify({ clickedTraceName: clickedTraceName, traceStatut: tracesInfo, server_data}),
-                                success: function(response) {
-                                    var newGraph = JSON.parse(response["graph"])
-                                    newGraph.layout = layout
-                                    newGraph.config={displaylogo: false}
-                                    Plotly.react('plotly_graph_analyse_CCC', newGraph, {});
-                                },
-                                error: function(error) {
-                                    console.error("Erreur lors de la mise à jour du graphique :", error);
-                                }
-                            });
-                            return false;
-                        })
-
-                        document.getElementById("id_CCC").removeChild(div_spinner_upload);
-                    });
-        }
-        else
-        {
-            document.getElementById("plotly_graph_analyse_CCC").innerHTML = '';
-        }
-    }
-
-    /* Recherche dans la liste des valeurs.
-       Ne fait que relancer le recalcul : plus aucune manipulation directe
-       des labels, qui entrait en conflit avec maj_selecteur(). */
-    filtrer = function(evt)
-    {
-        maj_selecteur();
-    }
-
-    /* "Tout cocher" : ne porte que sur les valeurs visibles, donc
-       compatibles avec les choix faits sur les autres sélecteurs. */
-    coche_decoche = function(evt)
-    {
-        var selecteur = evt.target.id.replace("id_radio_", "");
-
-        if(list_nom_selecteur.indexOf(selecteur) === -1) { return; }
-
-        for(box of cases_selecteur(selecteur))
-        {
-            if(box.parentNode.style.display !== "none")
-            {
-                box.checked = evt.target.checked
+        // Parcourir les fiches triées et ajouter uniquement les fiches avec la version la plus haute
+        let highestFiches = [];
+        for(let i = 0; i < fiches.length; i++) {
+            if(i === 0 || fiches[i]["Designation_Article"] !== fiches[i - 1]["Designation_Article"]) {
+                highestFiches.push(fiches[i]);
             }
         }
-        maj_selecteur();
-        create_graph_analyse_CE2();
+
+        return highestFiches;
     }
 
-    /* ==================================================================
-       ⚠ Fonctions appelées plus haut mais absentes des captures ayant
-         servi à reconstituer ce fichier. Reporter ici les versions
-         d'origine avant mise en service.
-       ================================================================== */
+    /* Trigger flash modal */
+    $(document).ready(function() {
+        var messages = "{{ get_flashed_messages() }}";
 
-    function addClassToGraph(classe)
-    {
-        // TODO — reprendre la version d'origine
-    }
-
-    function createGraphPage(numPageGraph)
-    {
-        // TODO — reprendre la version d'origine
-    }
-
-    function changeGraph(numPageGraph)
-    {
-        // TODO — reprendre la version d'origine
-    }
+        if (typeof messages != 'undefined' && messages != '[]') {
+            $("#modal-error").modal('show');
+        };
+    });
 
 </script>
 
