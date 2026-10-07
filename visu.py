@@ -57,6 +57,29 @@ fonctionne quand même : les cases restent décochées par défaut, seule
 l'interdépendance est inactive. Aucune régression possible.
 """
 
+import unicodedata
+
+
+def _cle_tri(valeur):
+    """
+    Clé de tri alphabétique insensible à la casse et aux accents.
+
+    `sorted()` seul trie par point de code : "Zinc" passerait avant
+    "Électronique", et toutes les majuscules avant toutes les minuscules. Cette
+    clé reproduit l'ordre de localeCompare(..., 'fr') utilisé dans
+    index_fiche.html, pour que les deux pages présentent les mêmes listes dans
+    le même ordre.
+
+    Deux valeurs ne différant que par la casse sont départagées minuscule
+    d'abord, comme le fait localeCompare en français ; la valeur d'origine sert
+    de dernier critère pour un ordre stable.
+    """
+    sans_accent = unicodedata.normalize("NFKD", valeur)
+    sans_accent = "".join(c for c in sans_accent if not unicodedata.combining(c))
+
+    return (sans_accent.casefold(), [c.isupper() for c in valeur], valeur)
+
+
 # Correspondance entre le nom du sélecteur côté page (list_nom_selecteur dans
 # visualisation.html) et le nom de la colonne du DataFrame renvoyé par
 # generate_data_cycle().
@@ -150,7 +173,8 @@ def get_listes_selecteur(df_cycle_detail, colonnes=None, trier=True):
     colonnes : dict, optional
         {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
     trier : bool, optional
-        True (défaut) : valeurs triées par ordre alphabétique.
+        True (défaut) : ordre alphabétique insensible à la casse et aux accents,
+        le même que celui de index_fiche.html.
         False : ordre d'apparition dans le DataFrame, comme `.unique()`.
 
     Returns
@@ -166,7 +190,7 @@ def get_listes_selecteur(df_cycle_detail, colonnes=None, trier=True):
     data = {}
     for selecteur in colonnes:
         valeurs = sous_df[selecteur].unique().tolist()
-        data[selecteur] = sorted(valeurs) if trier else valeurs
+        data[selecteur] = sorted(valeurs, key=_cle_tri) if trier else valeurs
 
     return data
 
