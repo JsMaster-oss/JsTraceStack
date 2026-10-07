@@ -198,3 +198,109 @@ def get_combinaisons_selecteur(df_cycle_detail, colonnes=None):
     sous_df = _sous_df(df_cycle_detail, colonnes)
 
     return sous_df.drop_duplicates().to_dict(orient="records")
+
+
+def appliquer_filtres_selecteur(df_cycle_detail, req, colonnes=None):
+    """
+    Applique au DataFrame les filtres envoyés par la page.
+
+    RÈGLE CENTRALE : une liste vide (ou absente) signifie AUCUNE contrainte sur
+    ce sélecteur. La colonne est alors laissée tranquille — on ne filtre pas.
+
+    C'est ce qui garantit qu'un graphique sans filtre actif est complet. Filtrer
+    sur la liste de toutes les valeurs ne serait PAS équivalent : ce serait
+    comparer les données à des libellés, et toute ligne dont la valeur ne
+    correspond pas exactement au libellé affiché disparaîtrait, sans filtre et
+    sans erreur.
+
+    La normalisation est appliquée ici, donc les valeurs comparées sont bien
+    celles qui ont servi à fabriquer les libellés.
+
+    Parameters
+    ----------
+    df_cycle_detail : pandas.DataFrame
+        Sortie de generate_data_cycle(config).
+    req : dict
+        Corps de la requête : {"reference_article": [...], "programme": [...],
+        ..., "b_ordonner": bool}. Les clés inconnues sont ignorées.
+    colonnes : dict, optional
+        {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Sous-ensemble filtré, colonnes des sélecteurs normalisées.
+    """
+    if colonnes is None:
+        colonnes = COLONNES_SELECTEUR
+
+    df_filtre = normaliser_colonnes_selecteur(df_cycle_detail, colonnes)
+
+    for selecteur, colonne in colonnes.items():
+        valeurs = req.get(selecteur) or []
+
+        # Aucune case cochée : on ne touche pas à cette colonne
+        if not valeurs:
+            continue
+
+        df_filtre = df_filtre[df_filtre[colonne].isin(valeurs)]
+
+    return df_filtre
+
+
+def completer_filtres_selecteur(req, df_cycle_detail, colonnes=None):
+    """
+    Remplace les listes vides de la requête par toutes les valeurs de la
+    colonne correspondante, prises sur le DataFrame NORMALISÉ.
+
+    À utiliser quand on ne veut pas toucher au filtrage existant d'une route :
+    le code qui fait `df[df[col].isin(req[selecteur])]` continue de fonctionner
+    tel quel, et une liste vide se comporte bien comme "aucune contrainte".
+
+        df_cycle_detail = generate_data_cycle(config)
+
+        df_cycle_detail = normaliser_colonnes_selecteur(df_cycle_detail)
+        req = completer_filtres_selecteur(req, df_cycle_detail)
+
+        # ... filtrage existant, inchangé
+
+    POURQUOI CE N'EST PAS LE BUG QUE L'ON VIENT DE CORRIGER
+    -------------------------------------------------------
+    La page, elle, ne doit jamais envoyer toutes les valeurs : ses libellés
+    seraient confrontés à des données brutes, et toute ligne dont une valeur
+    diffère de son libellé disparaîtrait. Ici les valeurs de remplissage sont
+    extraites du DataFrame normalisé lui-même, celui qui va être filtré : la
+    correspondance est exacte par construction, donc aucune ligne n'est perdue.
+
+    Attention : `df_cycle_detail` doit être le DataFrame réellement filtré
+    ensuite, et déjà normalisé.
+
+    Parameters
+    ----------
+    req : dict
+        Corps de la requête reçue de la page.
+    df_cycle_detail : pandas.DataFrame
+        DataFrame normalisé qui sera filtré.
+    colonnes : dict, optional
+        {nom_selecteur: nom_colonne}. COLONNES_SELECTEUR par défaut.
+
+    Returns
+    -------
+    dict
+        Copie de req, listes vides remplacées. Les autres clés
+        (b_ordonner...) sont conservées telles quelles.
+    """
+    if colonnes is None:
+        colonnes = COLONNES_SELECTEUR
+
+    req_complete = dict(req)
+
+    for selecteur, colonne in colonnes.items():
+        if req_complete.get(selecteur):
+            continue
+
+        # Aucune case cochée : on remplit avec les valeurs du DataFrame qui
+        # sera filtré, donc le filtre ne peut écarter aucune ligne
+        req_complete[selecteur] = df_cycle_detail[colonne].unique().tolist()
+
+    return req_complete
