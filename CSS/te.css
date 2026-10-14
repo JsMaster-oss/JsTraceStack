@@ -1,0 +1,535 @@
+/* Variables CSS pour le tableau */
+:root {
+  --tb-head-bg-color: #303C48;
+  --tb-head-text-color: #fff;
+}
+
+/* ========================================
+   Layout de comparaison avec 3 zones
+   ======================================== */
+
+.comparison-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: calc(85vh - 1.25rem);
+  overflow: hidden;
+}
+
+@media screen and (max-width: 1300px) {
+  .comparison-layout {
+    height: calc(70vh - 1.25rem);
+  }
+}
+
+@media screen and (max-height: 800px) {
+  .comparison-layout {
+    height: calc(65vh - 1.25rem);
+  }
+}
+
+@media screen and (max-height: 600px) {
+  .comparison-layout {
+    height: calc(55vh - 1.25rem);
+  }
+}
+
+/* ========================================
+   Toggle colonne sticky au clic sur le th
+   ======================================== */
+
+/* En-tête réduit : fine bande cliquable avec texte vertical */
+#table-sticky th.col-sticky-collapsed {
+  width: 14px !important;
+  min-width: 14px !important;
+  max-width: 14px !important;
+  padding: 2px 0 !important;
+  overflow: hidden;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  font-size: 9px !important;
+  cursor: pointer;
+  background-color: #505c68 !important;
+  color: #ccc !important;
+  text-overflow: clip;
+  border: 1px solid #666 !important;
+}
+
+/* Cellule de données : contenu masqué, largeur nulle */
+#table-sticky td.col-sticky-collapsed {
+  width: 14px !important;
+  min-width: 0 !important;
+  max-width: 14px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  font-size: 0 !important;
+  color: transparent !important;
+  background-color: #e0e0e0 !important;
+  border-left: 1px solid #bbb !important;
+  border-right: 1px solid #bbb !important;
+}
+
+/* Curseur pointer sur les th nommés (avant collapse) */
+#table-sticky th[data-col-idx] {
+  cursor: pointer;
+}
+
+/* ========================================
+   Sticky columns a gauche
+   ======================================== */
+
+.sticky-columns-wrapper {
+  flex-shrink: 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 3px solid #000;
+  background-color: #fff;
+  /* Masquer la scrollbar verticale pour eviter le decalage d'alignement */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sticky-columns-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+.sticky-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  background-color: #fff;
+}
+
+/* ========================================
+   Tables scrollables (VX et comparee)
+   ======================================== */
+
+.scrollable-tables-wrapper {
+  display: flex;
+  flex-direction: row;
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.table-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-right: 2px solid #000;
+}
+
+.table-container:last-child {
+  border-right: none;
+}
+
+.vx-container {
+  background-color: rgba(44, 82, 130, 0.05);
+}
+
+.compare-container {
+  background-color: rgba(45, 80, 22, 0.05);
+}
+
+/* ========================================
+   Tables communes
+   ======================================== */
+
+.tableau {
+  border: 0;
+  border-collapse: collapse;
+  table-layout: auto;
+  empty-cells: show;
+  font-size: 0.875rem;
+  width: 100%;
+  background-color: #fff;
+}
+
+.tableau thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tableau th,
+.tableau td {
+  padding: 2px 5px;
+  border: 1px solid #ccc;
+  background-color: var(--tb-head-bg-color);
+  color: var(--tb-head-text-color);
+  min-width: 70px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+/* ========================================
+   En-tetes de tableau
+   ======================================== */
+
+.titre-tableau th:not(.header-group-vx):not(.header-group-compare):not(.header-empty-sticky) {
+  text-align: center;
+  white-space: nowrap;
+  background-color: var(--tb-head-bg-color);
+  color: var(--tb-head-text-color);
+  box-sizing: border-box;
+}
+
+/* Headers VX / VERSION / sticky vide */
+.header-group-vx,
+.header-group-compare,
+.header-empty-sticky {
+  background-color: var(--tb-head-bg-color);
+  color: var(--tb-head-text-color);
+  font-weight: bold;
+  text-align: left;
+  border: 1px solid #ccc;
+  font-size: 1.1rem;
+  padding: 0;
+  box-sizing: border-box;
+  /* Override des styles .tableau th qui cassent le colspan */
+  max-width: none;
+  overflow: visible;
+}
+
+.header-group-vx {
+  background-color: #2c5282;
+}
+
+.header-group-compare {
+  background-color: #2d5016;
+}
+
+/* Div a l'interieur du th label, positionne via JS pour suivre le scroll horizontal */
+.label-sticky-inner {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* Ligne d'annees regroupees */
+.header-year-group {
+  text-align: center;
+  background-color: var(--tb-head-bg-color);
+  color: var(--tb-head-text-color);
+  font-weight: bold;
+  border: 1px solid #ccc;
+}
+
+/* Extra columns avec rowspan */
+.header-extra-col {
+  text-align: center;
+  background-color: var(--tb-head-bg-color);
+  color: var(--tb-head-text-color);
+  border: 1px solid #ccc;
+}
+
+.header-empty-sticky {
+  background-color: var(--tb-head-bg-color);
+}
+
+/* ========================================
+   Lignes de donnees - hauteurs uniformes
+   (syncRowHeights() JS gere l'alignement exact)
+   ======================================== */
+
+.tableau tr.ligne td,
+.tableau tr.ligne-activite-total td,
+.tableau tr.ligne-produit-total td {
+  background-color: #fff;
+  color: #000;
+  box-sizing: border-box;
+}
+
+/* ========================================
+   Lignes de totaux
+   ======================================== */
+
+.ligne-activite-total td {
+  background-color: grey !important;
+  color: #fff !important;
+}
+
+.ligne-produit-total td {
+  background-color: #f3f362 !important;
+  color: #000 !important;
+}
+
+.total-cell {
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.total-cell:hover {
+  filter: brightness(0.9);
+}
+
+/* ========================================
+   Bouton info tableau
+   ======================================== */
+
+.btn-info-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--btn-border-color);
+  color: #fff;
+  margin: 0.063rem;
+  padding: 0.313rem;
+  border-radius: 5px;
+  background-color: var(--btn-bg-color);
+  font-size: 0.875rem;
+  font-weight: bold;
+  text-decoration: none;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.btn-info-tab:hover {
+  background-color: var(--interactions);
+  border-color: var(--interactions);
+}
+
+/* Select entite realisatrice */
+.tableau-entite-realisatrice select {
+  border: 0;
+  width: 100%;
+}
+
+/* Fenetre modale infos detaillees */
+.trait {
+  border-width: 0;
+  color: #000;
+  background-color: #000;
+  margin: 0.625rem;
+  height: 1px;
+}
+
+/* ========================================
+   Cellules de periodes et extra
+   ======================================== */
+
+.period-cell,
+.extra-cell {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  background-color: #fff !important;
+  color: #000 !important;
+}
+
+.period-cell:hover,
+.extra-cell:hover {
+  background-color: rgba(100, 149, 237, 0.2) !important;
+}
+
+/* Surbrillance lors du clic */
+.period-cell.highlighted,
+.extra-cell.highlighted,
+.total-cell.highlighted,
+.ligne-activite-total td.highlighted,
+.ligne-produit-total td.highlighted,
+td.total-cell.highlighted.diff-addition,
+td.total-cell.highlighted.diff-deletion,
+td.total-cell.highlighted.diff-increase,
+td.total-cell.highlighted.diff-decrease,
+td.total-cell.highlighted.diff-change {
+  background-color: rgba(255, 215, 0, 0.5) !important;
+  font-weight: bold;
+  border: 2px solid #FFD700 !important;
+}
+
+.ligne.row-highlighted,
+.ligne-activite-total.row-highlighted,
+.ligne-produit-total.row-highlighted {
+  outline: 2px solid #0011ff;
+}
+
+/* ========================================
+   Separateurs verticaux annuels
+   ======================================== */
+
+.year-separator {
+  border-left: 3px solid #303C48 !important;
+}
+
+/* ========================================
+   Cellules avec differences (sticky)
+   ======================================== */
+
+.cell-has-diff {
+  background-color: rgba(255, 165, 0, 0.3) !important;
+  font-weight: bold;
+}
+
+/* ========================================
+   Colonne scénario de la version comparée (« Scénario V61.2 »)
+   Collée à celle de la Référence (« Scénario V62 »). Existe uniquement en mode
+   comparaison. Le trait pointillé marque le couple de colonnes ; quand les deux
+   valeurs diffèrent, les deux cellules passent en orange (cell-has-diff) et se
+   lisent d'un bloc. La largeur laisse passer « Scénario » + un libellé de
+   version sans troncature.
+   ======================================== */
+
+#table-sticky th.col-scenario-compare,
+#table-sticky td.col-scenario-compare {
+  min-width: 60px;
+  max-width: 150px;
+  border-left: 1px dashed #8a8a8a;
+}
+
+#table-sticky th.col-scenario-compare {
+  font-weight: normal;
+  font-size: 0.85em;
+  color: #cfd6dd;
+}
+
+/* ========================================
+   Classes de differences pour les echeances
+   ======================================== */
+
+.diff-addition {
+  background-color: rgba(144, 238, 144, 0.4) !important;
+  color: #006400 !important;
+  font-weight: bold;
+}
+
+.diff-deletion {
+  background-color: rgba(255, 99, 71, 0.4) !important;
+  color: #8B0000 !important;
+  font-weight: bold;
+}
+
+.diff-increase {
+  background-color: rgba(173, 216, 230, 0.5) !important;
+  color: #00008B !important;
+  font-weight: bold;
+}
+
+.diff-decrease {
+  background-color: rgba(255, 182, 193, 0.5) !important;
+  color: #8B0000 !important;
+  font-weight: bold;
+}
+
+.diff-change {
+  background-color: rgba(255, 215, 0, 0.4) !important;
+  color: #8B4513 !important;
+  font-weight: bold;
+}
+
+/* ========================================
+   Classes de differences pour les TOTAUX
+   (priorite sur les styles de ligne de totaux)
+   ======================================== */
+
+.ligne-activite-total td.diff-addition,
+.ligne-produit-total td.diff-addition,
+.total-cell.diff-addition {
+  background-color: rgba(144, 238, 144, 0.7) !important;
+  color: #006400 !important;
+}
+
+.ligne-activite-total td.diff-deletion,
+.ligne-produit-total td.diff-deletion,
+.total-cell.diff-deletion {
+  background-color: rgba(255, 99, 71, 0.7) !important;
+  color: #8B0000 !important;
+}
+
+.ligne-activite-total td.diff-increase,
+.ligne-produit-total td.diff-increase,
+.total-cell.diff-increase {
+  background-color: rgba(173, 216, 230, 0.8) !important;
+  color: #00008B !important;
+}
+
+.ligne-activite-total td.diff-decrease,
+.ligne-produit-total td.diff-decrease,
+.total-cell.diff-decrease {
+  background-color: rgba(255, 182, 193, 0.8) !important;
+  color: #8B0000 !important;
+}
+
+.ligne-activite-total td.diff-change,
+.ligne-produit-total td.diff-change,
+.total-cell.diff-change {
+  background-color: rgba(255, 215, 0, 0.7) !important;
+  color: #8B4513 !important;
+}
+
+/* Ligne avec differences */
+.row-has-diff {
+  border-left: 3px solid #FF6347;
+}
+
+/* ========================================
+   Lignes presentes uniquement dans une version
+   ======================================== */
+
+/* Ligne presente uniquement dans la version comparee (ajout) */
+.compare-row-added td {
+  background-color: rgba(144, 238, 144, 0.4) !important;
+  color: #006400 !important;
+}
+
+/* Sticky : indicateur visuel pour les lignes compare-only */
+.sticky-row-added td {
+  background-color: rgba(144, 238, 144, 0.2) !important;
+}
+.sticky-row-added td.sticky-column {
+  background-color: rgb(190, 237, 190) !important;
+}
+
+/* Sticky : indicateur visuel pour les lignes supprimées de la Référence */
+.sticky-row-missing td {
+  background-color: rgba(255, 99, 71, 0.1) !important;
+}
+.sticky-row-missing td.sticky-column {
+  background-color: rgb(255, 195, 185) !important;
+  color: #8B0000 !important;
+}
+
+/* VX : ligne vide pour un ajout (la ligne n'existe pas dans VX mais est dans compare) */
+.vx-row-empty td {
+  background-color: rgba(144, 238, 144, 0.1) !important;
+}
+
+/* VX : ligne vide pour une suppression (la ligne n'existe plus dans VX) */
+.vx-row-missing td {
+  background-color: rgba(255, 99, 71, 0.1) !important;
+}
+
+/* VX : ligne présente uniquement dans VX (nouveau produit) */
+.vx-row-added td {
+  background-color: rgba(144, 238, 144, 0.4) !important;
+  color: #006400 !important;
+}
+
+/* Compare : ligne vide (la ligne n'existe pas dans la version comparée) */
+.compare-row-empty td {
+  background-color: rgba(144, 238, 144, 0.1) !important;
+}
+
+/* Ligne absente de la version comparee (suppression) */
+.compare-row-missing td {
+  background-color: rgba(255, 99, 71, 0.3) !important;
+  color: #8B0000 !important;
+}
+
+/* Sticky : fond opaque pour les lignes supprimées (évite transparence sur scroll) */
+.compare-row-missing td.sticky-column {
+  background-color: rgb(255, 195, 185) !important;
+  color: #8B0000 !important;
+}
+
+/* VX : ligne vide pour produit supprimé */
+.compare-row-missing.vx-row-empty td {
+  background-color: rgba(255, 99, 71, 0.1) !important;
+}
